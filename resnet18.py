@@ -11,7 +11,7 @@ from torchvision import datasets
 from torch.optim.lr_scheduler import MultiStepLR
 
 from utils import WarmUpLR
-from models.resnet import resnet101
+from models.resnet import resnet18
 
 import logging
 import time
@@ -81,7 +81,7 @@ device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 def train(lr=1e-1):
     # 模型
-    model = resnet101()
+    model = resnet18()
     # 交叉熵
     criterion = torch.nn.CrossEntropyLoss()
     # 优化器
