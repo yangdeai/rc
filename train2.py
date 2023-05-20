@@ -20,15 +20,17 @@ import time
 # 批次的大小
 batch_size = 128  # 可选32、64、128
 # 优化器的学习率
-lr = 1e-1
+lr = 1e-3
 # 运行epoch
-MAX_EPOCH = 600
+MAX_EPOCH = 300
 WARMUP_EPOCH = int(0.05 * MAX_EPOCH) if int(0.05 * MAX_EPOCH) > 0 else 1
+
 
 # 数据读取
 # cifar10数据集为例给出构建Dataset类的方式
 # “data_transform”可以对图像进行一定的变换，如翻转、裁剪、归一化等操作，可自己定义
-train_mean, train_std = (0.4912, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616)
+train_mean, train_std = (0.49144, 0.48222, 0.44652), (0.24702, 0.24349, 0.26166)
+
 train_data_transform = transforms.Compose([
                                             transforms.ToTensor(),
                                             transforms.RandomCrop(32, padding=4),  # 先四周填充0，在吧图像随机裁剪成32*32
@@ -46,7 +48,7 @@ val_loader = torch.utils.data.DataLoader(val_cifar_dataset,
                                          batch_size=batch_size, num_workers=4,
                                          shuffle=False)
 
-exp_name = 'exp2'
+exp_name = 'exp3'
 weight_dir = './weights'
 if not os.path.exists(weight_dir):
     os.makedirs(weight_dir)
@@ -83,7 +85,7 @@ def train(lr=1e-1):
     criterion = torch.nn.CrossEntropyLoss()
     # 优化器
     # optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=5e-4)
+    optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=1e-4)
     scheduler = MultiStepLR(optimizer, milestones=[int(0.4 * MAX_EPOCH), int(0.6 * MAX_EPOCH),
                                                    int(0.8 * MAX_EPOCH)], gamma=0.1)
     total_iter = len(train_loader)
@@ -104,7 +106,7 @@ def train(lr=1e-1):
         if epoch_count % 10 == 0:
             epoch_count = 0
             lr = lr * 0.5
-            optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=5e-4)
+            optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=1e-4)
 
         for iter, (images, labels) in enumerate(train_loader):
             images = images.to(device)
@@ -120,7 +122,6 @@ def train(lr=1e-1):
             optimizer.step()
             if epoch >= WARMUP_EPOCH:
                 scheduler.step()
-                pass
             else:
                 warmup_scheduler.step()
 

@@ -18,9 +18,10 @@ import datetime
 import numpy
 
 import torch
-from torch.optim.lr_scheduler import _LRScheduler
+from torch.optim.lr_scheduler import LRScheduler
 import torchvision
 import torchvision.transforms as transforms
+from torchvision import datasets
 from torch.utils.data import DataLoader
 
 
@@ -113,7 +114,7 @@ def compute_mean_std(dataset):
     return mean, std
 
 
-class WarmUpLR(_LRScheduler):
+class WarmUpLR(LRScheduler):
     """warmup_training learning rate scheduler
     Args:
         optimizer: optimzier(e.g. SGD)
@@ -148,6 +149,18 @@ def most_recent_folder(net_weights, fmt):
     return folders[-1]
 
 
-
 if __name__ == "__main__":
-    pass
+    train_cifar_dataset = datasets.CIFAR10('cifar10', train=True, download=True)
+    test_cifar_dataset = datasets.CIFAR10('cifar10', train=False, download=True)
+    print(train_cifar_dataset.data.shape)  # (50000, 32, 32, 3)
+    print(test_cifar_dataset.data.shape)  # (10000, 32, 32, 3)
+    train_mean, train_std = compute_mean_std(train_cifar_dataset)
+    test_mean, test_std = compute_mean_std(test_cifar_dataset)
+
+    print(train_mean, train_std)  # (0.49144, 0.48222, 0.44652), (0.24702, 0.24349, 0.26166)
+    print(test_mean, test_std)  # (0.49421, 0.48513, 0.45041), (0.24665, 0.24289, 0.26159)
+    # mean = tensor([0.4914, 0.4821, 0.4465]),std = tensor([0.2470, 0.2435, 0.2616])
+
+
+
+
