@@ -18,11 +18,11 @@ import time
 
 # 超参数定义
 # 批次的大小
-batch_size = 128  # 可选32、64、128
+batch_size = 32  # 可选32、64、128
 # 优化器的学习率
-lr = 1e-3
+lr = 1e-1
 # 运行epoch
-MAX_EPOCH = 300
+MAX_EPOCH = 200
 WARMUP_EPOCH = int(0.05 * MAX_EPOCH) if int(0.05 * MAX_EPOCH) > 0 else 1
 
 
@@ -48,7 +48,8 @@ val_loader = torch.utils.data.DataLoader(val_cifar_dataset,
                                          batch_size=batch_size, num_workers=4,
                                          shuffle=False)
 
-exp_name = 'exp3'
+feature = "uname"
+exp_name = f'{feature}_exp4'
 weight_dir = './weights'
 if not os.path.exists(weight_dir):
     os.makedirs(weight_dir)
@@ -86,8 +87,7 @@ def train(lr=1e-1):
     # 优化器
     # optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=1e-4)
-    scheduler = MultiStepLR(optimizer, milestones=[int(0.4 * MAX_EPOCH), int(0.6 * MAX_EPOCH),
-                                                   int(0.8 * MAX_EPOCH)], gamma=0.1)
+    scheduler = MultiStepLR(optimizer, milestones=[int(0.6 * MAX_EPOCH), int(0.8 * MAX_EPOCH)], gamma=0.1)
     total_iter = len(train_loader)
     warmup_scheduler = WarmUpLR(optimizer, total_iter * WARMUP_EPOCH)
     model = model.to(device)
