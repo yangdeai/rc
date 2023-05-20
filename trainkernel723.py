@@ -45,8 +45,8 @@ train_loader = torch.utils.data.DataLoader(train_cifar_dataset,
 val_loader = torch.utils.data.DataLoader(val_cifar_dataset,
                                          batch_size=batch_size, num_workers=4,
                                          shuffle=False)
-
-exp_name = 'exp4'
+feature = "kernel723"
+exp_name = f'{feature}_exp4'
 weight_dir = './weights'
 if not os.path.exists(weight_dir):
     os.makedirs(weight_dir)
@@ -122,7 +122,7 @@ def train(lr=1e-1):
         train_loss = train_total_loss / train_total_num
         train_acc = train_total_correct / train_total_num
 
-        if train_loss < last_train_loss:
+        if train_loss - last_train_loss < 1e-6:
             last_train_loss = train_loss
             epoch_count = 0
         else:
