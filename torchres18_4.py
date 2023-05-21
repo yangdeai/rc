@@ -9,9 +9,11 @@ from torchvision.transforms import transforms
 from torch.utils.tensorboard import SummaryWriter
 from torchvision import datasets
 from torch.optim.lr_scheduler import MultiStepLR
+import torchvision
+import torch.nn as nn
+
 
 from utils import WarmUpLR
-from models.resnet import resnet18
 
 import logging
 import time
@@ -23,13 +25,12 @@ batch_size = 32  # 可选32、64、128
 lr = 1e-1
 # 运行epoch
 MAX_EPOCH = 200
-WARMUP_EPOCH = int(0.05 * MAX_EPOCH) if int(0.05 * MAX_EPOCH) > 0 else 1
-
 
 # 数据读取
 # cifar10数据集为例给出构建Dataset类的方式
 # “data_transform”可以对图像进行一定的变换，如翻转、裁剪、归一化等操作，可自己定义
 train_mean, train_std = (0.49144, 0.48222, 0.44652), (0.24702, 0.24349, 0.26166)
+test_mean, test_std = (0.49421, 0.48513, 0.45041), (0.24665, 0.24289, 0.26159)
 
 train_data_transform = transforms.Compose([
                                             transforms.ToTensor(),
@@ -37,19 +38,27 @@ train_data_transform = transforms.Compose([
                                             transforms.RandomHorizontalFlip(p=0.5),  # 随机水平翻转 选择一个概率概率
                                             transforms.Normalize(train_mean, train_std)
                                           ])
+
+test_data_transform = transforms.Compose([
+                       transforms.ToTensor(),
+                       transforms.Normalize(test_mean, test_std)
+                      ])
+
 train_cifar_dataset = datasets.CIFAR10('cifar10', train=True, download=False, transform=train_data_transform)
-train_cifar_dataset, val_cifar_dataset = torch.utils.data.random_split(train_cifar_dataset, [45000, 5000])
+test_cifar_dataset = datasets.CIFAR10('cifar10', train=False, download=False, transform=test_data_transform)
+
+
+# train_cifar_dataset, val_cifar_dataset = torch.utils.data.random_split(train_cifar_dataset, [45000, 5000])
 
 # 构建好Dataset后，就可以使用DataLoader来按批次读入数据
 train_loader = torch.utils.data.DataLoader(train_cifar_dataset,
                                            batch_size=batch_size, num_workers=4,
                                            shuffle=True, drop_last=True)
-val_loader = torch.utils.data.DataLoader(val_cifar_dataset,
-                                         batch_size=batch_size, num_workers=4,
-                                         shuffle=False)
-
-feature = "ker3str1pad1"
-exp_name = f'{feature}_exp4'
+test_loader = torch.utils.data.DataLoader(test_cifar_dataset,
+                                          batch_size=batch_size, num_workers=4,
+                                          shuffle=False)
+feature = "torchres18_all"
+exp_name = f'{feature}_exp2'
 weight_dir = './weights'
 if not os.path.exists(weight_dir):
     os.makedirs(weight_dir)
@@ -68,7 +77,7 @@ save_dir = weight_dir + f'/resnet101_{exp_name}_MAX_EPOCH{MAX_EPOCH}.pth'
 
 # 训练&验证
 # writer = SummaryWriter(log_dir)
-hengyuanyun_log_dir  = "/tf_logs/" + exp_name
+hengyuanyun_log_dir = "/tf_logs/" + exp_name
 if not os.path.exists(hengyuanyun_log_dir):
     os.makedirs(hengyuanyun_log_dir)
 writer = SummaryWriter(hengyuanyun_log_dir)
@@ -81,16 +90,25 @@ device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 def train(lr=1e-1):
     # 模型
-    model = resnet18()
+    # 定义模型  使用官方模型
+    model = torchvision.models.resnet18(weights=None)
+
+    # 修改模型
+    model.conv1 = nn.Conv2d(3, 64, 3, stride=1, padding=1, bias=False)  # 首层改成3x3卷积核
+    model.maxpool = nn.MaxPool2d(1, 1, 0)  # 图像太小 本来就没什么特征 所以这里通过1x1的池化核让池化层失效
+    num_ftrs = model.fc.in_features  # 获取（fc）层的输入的特征数
+    model.fc = nn.Linear(num_ftrs, 10)
+
     # 交叉熵
     criterion = torch.nn.CrossEntropyLoss()
     # 优化器
     # optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=1e-4)
-    scheduler = MultiStepLR(optimizer, milestones=[int(0.6 * MAX_EPOCH), int(0.8 * MAX_EPOCH)], gamma=0.1)
-    total_iter = len(train_loader)
-    warmup_scheduler = WarmUpLR(optimizer, total_iter * WARMUP_EPOCH)
+    optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=5e-4)
+    # scheduler = MultiStepLR(optimizer, milestones=[int(0.6 * MAX_EPOCH), int(0.8 * MAX_EPOCH)], gamma=0.1)
+    # total_iter = len(train_loader)
+    # warmup_scheduler = WarmUpLR(optimizer, total_iter * WARMUP_EPOCH)
     model = model.to(device)
+
     # 训练时间
     start = time.time()
     val_last_acc = 0.0
@@ -106,7 +124,7 @@ def train(lr=1e-1):
         if epoch_count % 10 == 0:
             epoch_count = 0
             lr = lr * 0.5
-            optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=1e-4)
+            optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=5e-4)
 
         for iter, (images, labels) in enumerate(train_loader):
             images = images.to(device)
@@ -120,10 +138,10 @@ def train(lr=1e-1):
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            if epoch >= WARMUP_EPOCH:
-                scheduler.step()
-            else:
-                warmup_scheduler.step()
+            # if epoch >= WARMUP_EPOCH:
+            #     scheduler.step()
+            # else:
+            #     warmup_scheduler.step()
 
             train_total_num += labels.shape[0]
             train_total_loss += loss.item()
@@ -141,7 +159,7 @@ def train(lr=1e-1):
         val_total_loss = 0
         val_total_correct = 0
         val_total_num = 0
-        for iter, (images, labels) in enumerate(val_loader):
+        for iter, (images, labels) in enumerate(test_loader):
             images = images.to(device)
             labels = labels.to(device)
 
@@ -179,7 +197,7 @@ def train(lr=1e-1):
 if __name__ == '__main__':
 
     logging.info("===   !!!START TRAINING!!!   ===")
-    logging.info('train_data_num: {}, validation_data_num: {}'.format(len(train_cifar_dataset), len(val_cifar_dataset)))
+    logging.info('train_data_num: {}, validation_data_num: {}'.format(len(train_cifar_dataset), len(test_cifar_dataset)))
     train(lr=lr)
     logging.info("===   !!! END TRAINING !!!   ===")
     logging.info("\n\n\n\n")

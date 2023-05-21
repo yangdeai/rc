@@ -32,7 +32,7 @@ batch_size = 64  # 可选32、64、128
 test_mean, test_std = (0.49421, 0.48513, 0.45041), (0.24665, 0.24289, 0.26159)
 test_data_transform = transforms.Compose([
                        transforms.ToTensor(),
-                       # transforms.Normalize(test_mean, test_std)
+                       transforms.Normalize(test_mean, test_std)
                       ])
 
 test_cifar_dataset = datasets.CIFAR10('cifar10', train=False, download=False, transform=test_data_transform)
