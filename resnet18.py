@@ -48,7 +48,7 @@ val_loader = torch.utils.data.DataLoader(val_cifar_dataset,
                                          batch_size=batch_size, num_workers=4,
                                          shuffle=False)
 
-feature = "uname"
+feature = "ker3str1pad1"
 exp_name = f'{feature}_exp4'
 weight_dir = './weights'
 if not os.path.exists(weight_dir):
