@@ -26,7 +26,7 @@ def train(lr=1e-1):
     criterion = torch.nn.CrossEntropyLoss()
     # 优化器
     # optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=5e-4)
+    # optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=5e-4)
 
     model = model.to(device)
     # 训练时间
@@ -41,10 +41,16 @@ def train(lr=1e-1):
         train_total_loss = 0
         train_total_num = 0
         train_total_correct = 0
-        if epoch_count / 10 == 1:
+        if epoch < WARMUP_EPOCH:
+            lr = 0.01
+            optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=1e-4)
+        elif epoch == WARMUP_EPOCH:
+            lr = 0.1
+            optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=1e-4)
+        elif epoch_count / 10 == 1 and epoch > WARMUP_EPOCH:
             epoch_count = 0
             lr = lr * 0.5
-            optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=5e-4)
+            optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=1e-4)
 
         logging.info('Epoch {}/{}'.format(epoch, MAX_EPOCH))
         logging.info('-' * 10)
@@ -86,7 +92,8 @@ def train(lr=1e-1):
             val_total_loss = 0
             val_total_correct = 0
             val_total_num = 0
-            for iter, (images, labels) in enumerate(test_loader):
+            # for iter, (images, labels) in enumerate(test_loader):
+            for iter, (images, labels) in enumerate(val_loader):
                 images = images.to(device)
                 labels = labels.to(device)
 
@@ -153,7 +160,8 @@ if __name__ == '__main__':
     # 优化器的学习率
     LR = 1e-1
     # 运行epoch
-    MAX_EPOCH = 250
+    MAX_EPOCH = 200
+    WARMUP_EPOCH = 2
 
     # 数据读取
     # cifar10数据集为例给出构建Dataset类的方式
@@ -172,22 +180,22 @@ if __name__ == '__main__':
     ])
 
     train_cifar_dataset = datasets.CIFAR10('cifar10', train=True, download=False, transform=train_data_transform)
-    test_cifar_dataset = datasets.CIFAR10('cifar10', train=False, download=False, transform=test_data_transform)
-    # train_cifar_dataset, val_cifar_dataset = torch.utils.data.random_split(train_cifar_dataset, [45000, 5000])
+    # test_cifar_dataset = datasets.CIFAR10('cifar10', train=False, download=False, transform=test_data_transform)
+    train_cifar_dataset, val_cifar_dataset = torch.utils.data.random_split(train_cifar_dataset, [45000, 5000])
 
     # 构建好Dataset后，就可以使用DataLoader来按批次读入数据了
     train_loader = torch.utils.data.DataLoader(train_cifar_dataset,
                                                batch_size=batch_size, num_workers=4,
                                                shuffle=True, drop_last=True)
-    test_loader = torch.utils.data.DataLoader(test_cifar_dataset,
-                                              batch_size=batch_size, num_workers=4,
-                                              shuffle=False)
-    # val_loader = torch.utils.data.DataLoader(val_cifar_dataset,
-    #                                          batch_size=batch_size, num_workers=4,
-    #                                          shuffle=False)
+    # test_loader = torch.utils.data.DataLoader(test_cifar_dataset,
+    #                                           batch_size=batch_size, num_workers=4,
+    #                                           shuffle=False)
+    val_loader = torch.utils.data.DataLoader(val_cifar_dataset,
+                                             batch_size=batch_size, num_workers=4,
+                                             shuffle=False)
 
-    feature = "my_resnet18"
-    exp_name = f'{feature}_exp1000'
+    feature = "my_resnet101"
+    exp_name = f'{feature}_exp0'
     weight_dir = './weights'
     if not os.path.exists(weight_dir):
         os.makedirs(weight_dir)
@@ -217,7 +225,7 @@ if __name__ == '__main__':
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
     logging.info("===   !!!START TRAINING!!!   ===")
-    logging.info('train_data_num: {}, validation_data_num: {}'.format(len(train_cifar_dataset), len(test_cifar_dataset)))
+    logging.info('train_data_num: {}, validation_data_num: {}'.format(len(train_cifar_dataset), len(val_cifar_dataset)))
     train(lr=LR)
     logging.info("===   !!! END TRAINING !!!   ===")
     logging.info("\n\n\n\n")
