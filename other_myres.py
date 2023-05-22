@@ -16,7 +16,6 @@ import os
 from models.resnet import resnet18
 import logging
 
-
 if __name__ == "__main__":
 
     # 这里面的变量都相当于全局变量 ！！
@@ -30,14 +29,21 @@ if __name__ == "__main__":
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
 
+    # 训练&验证
+    # writer = SummaryWriter(log_dir)
+    hengyuanyun_log_dir = "/tf_logs/" + exp_name
+    if not os.path.exists(hengyuanyun_log_dir):
+        os.makedirs(hengyuanyun_log_dir)
+    writer = SummaryWriter(hengyuanyun_log_dir)
+
     logging.basicConfig(filename=log_dir + '.txt',
                         filemode='a',
                         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s-%(funcName)s',
                         level=logging.INFO)
 
     # GPU计算
-    device = torch.device("cuda")
-    # device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    # device = torch.device("cuda")
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     #  训练总轮数
     total_epochs = 250
@@ -46,24 +52,26 @@ if __name__ == "__main__":
     # 初始学习率
     Lr = 0.1
 
-    weight_dir = './weights_my'
+    weight_dir = './weights'
     if not os.path.exists(weight_dir):
         os.makedirs(weight_dir)
     filename = '{}best_cnn_model'.format(weight_dir)  # 文件扩展名在保存时添加
 
     torch.backends.cudnn.benchmark = True
 
+    train_mean, train_std = [0.4912, 0.4822, 0.4465], [0.2470, 0.2435, 0.2616]
+    test_mean, test_std = [0.4942, 0.4851, 0.4504], [0.2467, 0.2430, 0.2616]
     # 准备数据
     data_transforms = {
         'train': transforms.Compose([
-            transforms.ToTensor()
-            , transforms.RandomCrop(32, padding=4)  # 先四周填充0，在吧图像随机裁剪成32*32
-            , transforms.RandomHorizontalFlip(p=0.5)  # 随机水平翻转 选择一个概率概率
-            , transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])  # 均值，标准差
+            transforms.ToTensor(), 
+            transforms.RandomCrop(32, padding=4),  # 先四周填充0，在吧图像随机裁剪成32*32
+            transforms.RandomHorizontalFlip(p=0.5),  # 随机水平翻转 选择一个概率概率
+            transforms.Normalize(train_mean, train_std)  # 均值，标准差
         ]),
         'valid': transforms.Compose([
-            transforms.ToTensor()
-            , transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+            transforms.ToTensor(), 
+            transforms.Normalize(test_mean, test_std)
         ]),
     }
     # 准备数据 这里将训练集和验证集写到了一个list里 否则后面的训练与验证阶段重复代码太多
@@ -71,21 +79,16 @@ if __name__ == "__main__":
         x: CIFAR10('cifar10', train=True if x == 'train' else False,
                    transform=data_transforms[x], download=True) for x in ['train', 'valid']}
 
-    dataloaders: dict = {
+    data_loaders: dict = {
         x: torch.utils.data.DataLoader(
             image_datasets[x], batch_size=batch_size, shuffle=True if x == 'train' else False
         ) for x in ['train', 'valid']
     }
-
+    # print(len(data_loaders['train'].sampler))
+    # print(len(data_loaders['valid'].sampler))
     # 定义模型
     # model_ft = torchvision.models.resnet18(pretrained=False)
     model_ft = resnet18()
-
-    # 修改模型
-    # model_ft.conv1 = nn.Conv2d(3, 64, 3, stride=1, padding=1, bias=False)  # 首层改成3x3卷积核
-    # model_ft.maxpool = nn.MaxPool2d(1, 1, 0)  # 图像太小 本来就没什么特征 所以这里通过1x1的池化核让池化层失效
-    # num_ftrs = model_ft.fc.in_features  # 获取（fc）层的输入的特征数
-    # model_ft.fc = nn.Linear(num_ftrs, 10)
 
     model_ft.to(device)
     # 创建损失函数
@@ -114,15 +117,14 @@ if __name__ == "__main__":
     save_num = 0
     # 保存最优正确率
     best_acc = 0
-
+    # 在每个epoch里重新创建优化器？？？
+    optimizer = optim.SGD(model_ft.parameters(), lr=Lr, momentum=0.9, weight_decay=5e-4)
     for epoch in range(total_epochs):
         # 动态调整学习率
         if counter / 10 == 1:
             counter = 0
             Lr = Lr * 0.5
-
-        # 在每个epoch里重新创建优化器？？？
-        optimizer = optim.SGD(model_ft.parameters(), lr=Lr, momentum=0.9, weight_decay=5e-4)
+            optimizer = optim.SGD(model_ft.parameters(), lr=Lr, momentum=0.9, weight_decay=5e-4)
 
         logging.info('Epoch {}/{}'.format(epoch + 1, total_epochs))
         logging.info('-' * 10)
@@ -141,7 +143,7 @@ if __name__ == "__main__":
             running_corrects = 0
 
             # 一次读取一个batch里面的全部数据
-            for inputs, labels in tqdm(dataloaders[phase]):
+            for inputs, labels in tqdm(data_loaders[phase]):
                 inputs = inputs.to(device)
                 labels = labels.to(device)
 
@@ -159,8 +161,7 @@ if __name__ == "__main__":
                     if phase == 'train':
                         loss.backward()  # 反向传播
                         optimizer.step()  # 优化权重
-                        # TODO:在SummaryWriter中记录学习率
-                        # ....
+                        writer.add_scalar('acc', optimizer.param_groups[0]['lr'], epoch)
 
                 # 计算损失值
                 running_loss += loss.item() * inputs.size(0)  # loss计算的是平均值，所以要乘上batch-size，计算损失的总和
@@ -169,8 +170,16 @@ if __name__ == "__main__":
                 total_step[phase] += 1
 
             # 一轮训练完后计算损失率和正确率
-            epoch_loss = running_loss / len(dataloaders[phase].sampler)  # 当前轮的总体平均损失值
-            epoch_acc = float(running_corrects) / len(dataloaders[phase].sampler)  # 当前轮的总正确率
+            epoch_loss = running_loss / len(data_loaders[phase].sampler)  # 当前轮的总体平均损失值
+            epoch_acc = float(running_corrects) / len(data_loaders[phase].sampler)  # 当前轮的总正确率
+
+            # # Write loss for epoch
+            writer.add_scalars('Loss', {
+                f'{phase}_loss': epoch_loss,
+            }, epoch)
+            writer.add_scalars('Acc', {
+                f'{phase}_acc': epoch_acc * 100,
+            }, epoch)
 
             time_elapsed = time.time() - since
             logging.info("\n")
