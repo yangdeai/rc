@@ -1,0 +1,1 @@
+2023-05-19 11:09:21,529 - root - INFO - logging info test_func!-<module>

@@ -90,7 +90,7 @@ def train(lr=1e-1):
             val_total_loss = 0
             val_total_correct = 0
             val_total_num = 0
-            for iter, (images, labels) in enumerate(val_loader):
+            for iter, (images, labels) in enumerate(test_loader):
                 images = images.to(device)
                 labels = labels.to(device)
 
@@ -169,18 +169,22 @@ if __name__ == '__main__':
     ])
 
     train_cifar_dataset = datasets.CIFAR10('cifar10', train=True, download=False, transform=train_data_transform)
-    train_cifar_dataset, val_cifar_dataset = torch.utils.data.random_split(train_cifar_dataset, [45000, 5000])
+    test_cifar_dataset = datasets.CIFAR10('cifar10', train=False, download=False, transform=test_data_transform)
+    # train_cifar_dataset, val_cifar_dataset = torch.utils.data.random_split(train_cifar_dataset, [45000, 5000])
 
     # 构建好Dataset后，就可以使用DataLoader来按批次读入数据了
     train_loader = torch.utils.data.DataLoader(train_cifar_dataset,
                                                batch_size=batch_size, num_workers=4,
                                                shuffle=True, drop_last=True)
-    val_loader = torch.utils.data.DataLoader(val_cifar_dataset,
-                                             batch_size=batch_size, num_workers=4,
-                                             shuffle=False)
+    test_loader = torch.utils.data.DataLoader(test_cifar_dataset,
+                                              batch_size=batch_size, num_workers=4,
+                                              shuffle=False)
+    # val_loader = torch.utils.data.DataLoader(val_cifar_dataset,
+    #                                          batch_size=batch_size, num_workers=4,
+    #                                          shuffle=False)
 
     feature = "my_resnet18"
-    exp_name = f'{feature}_exp'
+    exp_name = f'{feature}_exp0'
     weight_dir = './weights'
     if not os.path.exists(weight_dir):
         os.makedirs(weight_dir)
@@ -205,7 +209,7 @@ if __name__ == '__main__':
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
     logging.info("===   !!!START TRAINING!!!   ===")
-    logging.info('train_data_num: {}, validation_data_num: {}'.format(len(train_cifar_dataset), len(val_cifar_dataset)))
+    logging.info('train_data_num: {}, validation_data_num: {}'.format(len(train_cifar_dataset), len(test_cifar_dataset)))
     train(lr=LR)
     logging.info("===   !!! END TRAINING !!!   ===")
     logging.info("\n\n\n\n")

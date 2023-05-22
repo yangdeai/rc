@@ -36,8 +36,8 @@ if __name__ == "__main__":
                         level=logging.INFO)
 
     # GPU计算
-    # device = torch.device("cuda")
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cuda")
+    # device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
     #  训练总轮数
     total_epochs = 250
@@ -51,7 +51,7 @@ if __name__ == "__main__":
         os.makedirs(weight_dir)
     filename = '{}best_cnn_model'.format(weight_dir)  # 文件扩展名在保存时添加
 
-    # torch.backends.cudnn.benchmark = True
+    torch.backends.cudnn.benchmark = True
 
     # 准备数据
     data_transforms = {

@@ -1,0 +1,8 @@
+2023-05-19 11:20:53,161 - root - INFO - ===   !!!START TRAINING!!!   ===-<module>
+2023-05-19 11:20:53,161 - root - INFO - train data num:2-<module>
+2023-05-19 11:20:53,161 - root - INFO - ===   !!! END TRAINING !!!   ===-<module>
+2023-05-19 11:20:53,161 - root - INFO - 
+
+
+
+-<module>

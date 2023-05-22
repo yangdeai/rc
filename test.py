@@ -29,7 +29,7 @@ from models.resnet import resnet101
 # 批次的大小
 batch_size = 64  # 可选32、64、128
 
-test_mean, test_std = (0.49421, 0.48513, 0.45041), (0.24665, 0.24289, 0.26159)
+test_mean, test_std = (0.4942, 0.4851, 0.4504), (0.2467, 0.24295, 0.2616)
 test_data_transform = transforms.Compose([
                        transforms.ToTensor(),
                        transforms.Normalize(test_mean, test_std)
@@ -66,6 +66,7 @@ criterion = torch.nn.CrossEntropyLoss()
 def test():
     # 加载模型权重
     model = resnet101()
+    model.eval()
     model = model.to(device)
     model.load_state_dict(torch.load(weight_dir))
 
