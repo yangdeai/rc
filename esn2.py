@@ -21,7 +21,7 @@ import matplotlib.pyplot as plt
 # 前2000个数据用来训练，2001-4000的数据用来测试。训练数据中，前100项用来初始化储备池，以让储备池中形成良好的回声之后再开始训练。
 trainLen = 2000  # 这里 是50000
 testLen = 2000  # 这里 是10000
-initLen = 100  # 前100项用来初始化储备池
+initLen = 0.01 * trainLen  # 前100项用来初始化储备池
 
 data = loadtxt('MackeyGlass_t17.txt')  # (10000,)一万条数据
 # print(data.shape)  # (10000,)  -- (50000, 3072)
@@ -43,9 +43,10 @@ a = 0.3  # 可以看作储备池更新的速度，可不加，即设为1.  # sof
 
 random.seed(46)  # 设置随机种子
 # 随机初始化 Win 和 W    输入权重Win是输入n(i)和储备池的连接权重,shape=(N, 1+K)，dot(Win,u(n)),shape=(N,1+K)X(1+K,), W是储备池神经元连接矩阵，shape=(N,N)
-Win = (random.rand(resSize, 1 + inSize) - 0.5) * 1  # 输入矩阵 N * 1+K  (1000, 1 + 3072)， 1 + inSize中的1是偏置的维度
+# Win = (random.rand(resSize, 1 + inSize) - 0.5) * 1  # 输入矩阵 N * 1+K  (1000, 1 + 3072)， 1 + inSize中的1是偏置的维度
+Win = (random.rand(resSize, 1 + inSize)) * 1  # 输入矩阵 N * 1+K  (1000, 1 + 3072)， 1 + inSize中的1是偏置的维度
 print(Win.shape)  # (1000, 2)  --> (resSize, 3073)
-W = random.rand(resSize, resSize) - 0.5  # 储备池连接矩阵 N * N (1000, 1000)，???内部权重矩阵W是某时刻神经元与下一时刻神经元的连接，而非普通的互相连接???
+W = random.rand(resSize, resSize) # - 0.5  # 储备池连接矩阵 N * N (1000, 1000)，???内部权重矩阵W是某时刻神经元与下一时刻神经元的连接，而非普通的互相连接???
 print(W.shape)  # (1000, 1000)  --> (6, 6)
 
 # 对W进行防缩，以满足稀疏的要求。
