@@ -38,15 +38,33 @@ if __name__ == "__main__":
     print(X_pred.shape)  # (BATCH_SIZE, in_channel * high * width, resSize) (5, 27, 6)
 
 
-    input_layer = nn.Conv1d(1, 6, kernel_size=3, stride=1)  # 这里看是 (BATCH_SIZE, in_channel * high * width, 1) 还是(BATCH_SIZE,  high * width, in_channel)
 
 
-    m = nn.Conv1d(16, 33, 3, stride=2)
-    for name, weight in m.named_parameters():
-        print(name, weight.size())
-    input = torch.randn(20, 16, 50)
-    output = m(input)
 
-    print(output.size())
+    # input = torch.randn(5, 1, 3*3*3)
+    # X_optical = torch.randn(5, 6, 3*3*3)
+    # input_layer = nn.Conv1d(1, 6, kernel_size=1, stride=1, bias=False)  # 这里看是 (BATCH_SIZE, 1, in_channel * high * width)
+    # input_p = input_layer(input)
+    # print(input_p.size())  # torch.Size([5, 6, 27])
+    #
+    # reservoir_layer = nn.Conv1d(6, 6, kernel_size=1, stride=1, bias=False)
+    # output = reservoir_layer(input_p)
+    # print(output.size())  # torch.Size([5, 6, 27])
+    # for name, weight in reservoir_layer.named_parameters():
+    #     print(name, weight.size())
+    #
+    # optim_wdecay = torch.optim.SGD(reservoir_layer.parameters(), lr=1e-3, momentum=0.9, weight_decay=1e-2)
+    #
+    # loss_fn = torch.nn.MSELoss(reduction='mean')
+    # loss = loss_fn(output, X_optical)
+    # print(loss.item())
+    #
+    # # m = nn.Conv1d(16, 33, 3, stride=2)
+    # # for name, weight in m.named_parameters():
+    # #     print(name, weight.size())
+    # # input = torch.randn(20, 16, 50)
+    # # output = m(input)
+    #
+    # # print(output.size())
 
 
