@@ -19,8 +19,8 @@ import matplotlib.pyplot as plt
 
 # 加载数据
 # 前2000个数据用来训练，2001-4000的数据用来测试。训练数据中，前100项用来初始化储备池，以让储备池中形成良好的回声之后再开始训练。
-trainLen = 2000
-testLen = 2000
+trainLen = 2000  # 这里 是50000
+testLen = 2000  # 这里 是10000
 initLen = 100  # 前100项用来初始化储备池
 
 data = loadtxt('MackeyGlass_t17.txt')  # (10000,)一万条数据
@@ -32,27 +32,32 @@ plot(data[0:1000])
 title('A sample of data')
 
 # 生成ESN储层
-inSize = outSize = 1  # inSize 输入维数 K  # u(n)是一个输入序列，每个输入u(i)的维度是K，这里设置为=1；y(n)是一个输出序列，每个输出y(i)的维度L也是1
-resSize = 1000  # 储备池规模 N  # 储备池规模是储备池神经元个数
+# inSize = outSize = 1  # inSize 输入维数 K  # u(n)是一个输入序列，每个输入u(i)的维度是K，这里设置为=1；y(n)是一个输出序列，每个输出y(i)的维度L也是1
+expand = 6
+inSize = 3 * 32 * 32  # # inSize 输入维数 K  # u(n)是一个输入序列，每个输入u(i)的维度是K，这里设置为=3 * 32 * 32 = 3072；
+outSize = 3 * 32 * 32 * expand  # y(n)是一个输出序列，每个输出y(i)的维度L,这里设置为3 * 32 * 32 * expand
+
+# resSize = 1000  # 储备池规模 N  # 储备池规模是储备池神经元个数
+resSize = 6  # 储备池规模 N  # 储备池规模是储备池神经元个数
 a = 0.3  # 可以看作储备池更新的速度，可不加，即设为1.  # soft update, a=1的就是hard update.
 
-random.seed(42)  # 设置随机种子
-# 随机初始化 Win 和 W    输入权重Win是输入n(i)和储备池的连接权重,shape=(N,1+K)，dot(Win,u(n)),shape=(N,1+K)X(1+K,), W是储备池神经元连接矩阵，shape=(N,N)
-Win = (random.rand(resSize, 1 + inSize) - 0.5) * 1  # 输入矩阵 N * 1+K  (1000, 2)
-# print(Win.shape)  # (1000, 2)
+random.seed(46)  # 设置随机种子
+# 随机初始化 Win 和 W    输入权重Win是输入n(i)和储备池的连接权重,shape=(N, 1+K)，dot(Win,u(n)),shape=(N,1+K)X(1+K,), W是储备池神经元连接矩阵，shape=(N,N)
+Win = (random.rand(resSize, 1 + inSize) - 0.5) * 1  # 输入矩阵 N * 1+K  (1000, 1 + 3072)， 1 + inSize中的1是偏置的维度
+print(Win.shape)  # (1000, 2)  --> (resSize, 3073)
 W = random.rand(resSize, resSize) - 0.5  # 储备池连接矩阵 N * N (1000, 1000)，???内部权重矩阵W是某时刻神经元与下一时刻神经元的连接，而非普通的互相连接???
-# print(W.shape)  # (1000, 1000)
+print(W.shape)  # (1000, 1000)  --> (6, 6)
 
 # 对W进行防缩，以满足稀疏的要求。
 # 方案 1 - 直接缩放 (快且有脏数据, 特定储层): W *= 0.135
 # 方案 2 - 归一化并设置谱半径 (正确, 慢):
 print('计算谱半径...')
 rhoW = max(abs(linalg.eig(W)[0]))  # linalg.eig(W)[0]:特征值   linalg.eig(W)[1]:特征向量
-print("rhoW = ", rhoW)
+print("rhoW = ", rhoW)  # 0.7312194930112694
 # w, v = linalg.eig(W)  # (1000,) (1000, 1000)
 # print(w.shape, v.shape)  # (1000,) (1000, 1000)
 
-W *= 0.9 / rhoW  # 归一化的方式：除以最大特征的绝对值，乘以0.9 spectral radius
+W *= 0.9 / rhoW  # 归一化的方式：除以最大特征的绝对值，乘以0.9 spectral radius  1.25
 # 为设计（收集状态）矩阵分配内存  状态矩阵表明储备池状态随时间变化的过程：当前状态x(i)是当前输入dot(Win,u(i))、上一次状态dot(W,x(i-1))和偏置v的函数，这里没有上一次输出反馈yout(i-1)
 X = zeros((1 + inSize + resSize, trainLen - initLen))  # 储备池的状态矩阵x(t)：每一列是每个时刻的储备池状态。后面会转置
 # 直接设置相应的目标矩阵  target
