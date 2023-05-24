@@ -72,7 +72,7 @@ def read_data(data_path, train=True):
     return transform_data
 
 
-def prepared_data(data_path, transforms, train=True):
+def prepared_data(data_path, transforms=None, train=True):
     data_batches = []
     if train:
         for i in range(1, 6):
@@ -81,8 +81,11 @@ def prepared_data(data_path, transforms, train=True):
             img = data_dict[b'data']
             for idx in range(img.shape[0]):
                 trans_before = img[idx].reshape(32, 32, 3)
-                trans_after = transforms(trans_before)
-                trans_after_reshape = trans_after.reshape(3072,)
+                if transforms is not None:
+                    trans_after = transforms(trans_before)
+                    trans_after_reshape = trans_after.reshape(3072, )
+                else:
+                    trans_after_reshape = trans_before
                 data_batches.append(trans_after_reshape)
     else:
         file = data_path + f'test_batch'
@@ -90,8 +93,11 @@ def prepared_data(data_path, transforms, train=True):
         img = data_dict[b'data']
         for idx in range(img.shape[0]):
             trans_before = img[idx].reshape(32, 32, 3)
-            trans_after = transforms(trans_before)
-            trans_after_reshape = trans_after.reshape(3072,)
+            if transforms is not None:
+                trans_after = transforms(trans_before)
+                trans_after_reshape = trans_after.reshape(3072,)
+            else:
+                trans_after_reshape = trans_before
             data_batches.append(trans_after_reshape)
 
     transform_data = np.vstack(data_batches)
@@ -117,14 +123,14 @@ if __name__ == "__main__":
     test_mean, test_std = (0.49421, 0.48513, 0.45041), (0.24665, 0.24289, 0.26159)
 
     train_data_transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.RandomCrop(32, padding=4),
+        transforms.ToTensor(),  # 这个放在进入储层之后出来的的
+        transforms.RandomCrop(32, padding=4),  # 由于使用储层进行了预处理这里需不需要还要讨论一下:这里可以看作是一种预处理方式
         transforms.RandomHorizontalFlip(p=0.5),
-        transforms.Normalize(train_mean, train_std)
+        transforms.Normalize(train_mean, train_std)  # 这里减去的是原来数据的均值和标准差,所以应该放在储层之前进行的,但是深度学习哪里是放在上面的处理之后的出来的
     ])
     test_data_transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize(test_mean, test_std)
+        transforms.ToTensor(),  # 放在储层之后出来的
+        transforms.Normalize(test_mean, test_std)  #
     ])
     data_path = './cifar10/cifar-10-batches-py/'
 

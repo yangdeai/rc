@@ -59,3 +59,20 @@ if __name__ == "__main__":
         writer.add_scalar('Accuracy/test_func', np.random.random(), n_iter)
 
 
+    # npy_path = './data/images/'
+    # txt_path = './data/labels/'
+    # if not os.path.exists(npy_path):
+    #     os.makedirs(npy_path)
+    # if not os.path.exists(txt_path):
+    #     os.makedirs(txt_path)
+    #
+    # labels = [1, 2, 3, 4, 5]
+    # for idx, label in enumerate(labels):
+    #     imgs_file = npy_path + f'rc_img_{label}.npy'
+    #     labels_file = txt_path + 'labels.txt'
+    #     with open(labels_file, mode="a") as f:
+    #         f.write(imgs_file)
+    #         f.write(" " + str(label))
+    #         f.write("\n")
+
+

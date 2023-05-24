@@ -15,6 +15,8 @@ import pickle
 import sys
 import re
 import datetime
+import shutil
+import pickle
 
 import numpy as np
 
@@ -91,6 +93,149 @@ class LoadImgXOpticalData(dataset.Dataset):  # 注意父类的名称，不能写
         return len(self.img_info[0])
 
 
+class MyLoadRcData(dataset.Dataset):  # 注意父类的名称，不能写dataset
+    def __init__(self, userDataset=None, txt_path=None, train=True):
+        super(MyLoadRcData, self).__init__()
+        self.mean = []
+        self.std = []
+        self.train = train
+
+        # 定义储层的相关参数
+        np.random.seed(42)
+
+        self.inSize = 3 * 32 * 32
+        self.resSize = 6
+
+        self.initLen = 100  # int(0.01 * trainLen)  # the number to "wash out" the initial state x0
+        self.dataLen = len(userDataset.data) - self.initLen
+
+        self.a = 0.3
+        self.rho = 0.95  # spectral radius
+        self.Win = np.random.randn(1, self.resSize)
+        self.W = np.random.randn(self.resSize, self.resSize)
+        self.X = np.zeros((self.dataLen, self.inSize, self.resSize))
+        self.x = np.zeros((self.inSize, self.resSize))
+
+        print('Calculating spectral radius...')
+        self.rhoW = max(abs(np.linalg.eig(self.W)[0]))  # linalg.eig(W)[0]:特征值 linalg.eig(W)[1]:特征向量
+        print("Before normalized, spectral radius: rhoW = ", self.rhoW)
+        self.W *= self.rho / self.rhoW  # 归一化的方式：除以最大特征的绝对值，乘以0.9 spectral radius 1.25
+        self.rhoW = max(abs(np.linalg.eig(self.W)[0]))
+        print("After normalized, spectral radius: rhoW = ", self.rhoW)
+
+        if userDataset is not None:
+            self.rc_reprocess(userDataset)
+            self.save_data()
+            self.img_info = self.get_img(txt_path)
+        else:
+            raise ValueError("The userDataset is None, please check the userDataset!")
+
+        # # If needed, add at rc_processing
+        # self.before_rc_transform = transforms.Compose([
+        #     transforms.RandomCrop(32, padding=4),  # 先四周填充0，在吧图像随机裁剪成32*32
+        #     transforms.RandomHorizontalFlip(p=0.5),  # 随机水平翻转 选择一个概率概率
+        # ])
+
+        self.rc_trans = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(self.mean, self.std)
+        ])
+
+    def rc_reprocess(self, userDataset):
+        """
+            RC preprocessing.
+        """
+        original_images = userDataset.data  # (50000, 32, 32, 3) (50000,)(list)
+        # (50000, 32, 32, 3)->(50000, 3, 32, 32)->(50000, 3072, 1)
+        # images = original_images.transpose((0, 3, 1, 2)).reshape(-1, 3 * 32 * 32, 1)
+        images = original_images.reshape(-1, 3 * 32 * 32, 1)
+        self.labels = userDataset.targets
+        self.labels = self.labels[self.initLen:]
+
+        origin_num_samples = images.shape[0]
+        for idx in range(origin_num_samples):
+            u = images[idx]
+            self.x = (1 - self.a) * self.x + self.a * np.tanh(np.dot(u, self.Win) + + np.dot(self.x, self.W))
+
+            if idx >= self.initLen:
+                self.X[idx - self.initLen] = self.x  # 这里只有x，没有u和偏置, 由于后面没有了Yout,因此不记录输入u
+
+        in_channel = 3 * self.resSize
+        self.X = self.X.reshape(-1, in_channel, 32, 32)
+        if len(self.X) != len(self.labels):
+            raise ValueError(f"The number of data:{len(self.X)} is not equal the number of labels:{len(self.labels)}! "
+                             f"Please check them again!")
+        print(f"RC samples length : {len(self.X)}, labels length : {len(self.labels)}")
+
+        for i in range(in_channel):
+            self.mean.append(np.mean(self.X[:, i, :, :]))
+            self.std.append(np.std(self.X[:, i, :, :]))
+
+        return self.X, self.labels
+
+    def save_data(self):
+        if self.train:
+            rc_npy_path = './data/train/images/'
+            rc_txt_path = './data/train/labels/'
+        else:
+            rc_npy_path = './data/test/images/'
+            rc_txt_path = './data/test/labels/'
+
+        if not os.path.exists(rc_npy_path):
+            os.makedirs(rc_npy_path)
+        if not os.path.exists(rc_txt_path):
+            os.makedirs(rc_txt_path)
+
+        if os.listdir(rc_npy_path) and len(os.listdir(rc_npy_path)) == len(self.labels[self.initLen:]):
+            return
+        elif os.listdir(rc_npy_path) and len(os.listdir(rc_npy_path)) != len(self.labels[self.initLen:]):
+            for file in os.listdir(rc_npy_path):
+                os.remove(rc_npy_path + file)
+
+            for file in os.listdir(rc_txt_path):
+                os.remove(rc_txt_path + file)
+
+        labels_file = rc_txt_path + 'labels.txt'
+        for idx, label in enumerate(self.labels[self.initLen:self.initLen + 20]):  # 拿20条数据测试
+            imgs_file = rc_npy_path + f'rc_img_idx{idx}_label{label}.npy'
+            # print(self.X[idx].shape)  # (18, 32, 32)
+            np.save(imgs_file, self.X[idx])
+
+            with open(labels_file, mode='a', encoding='utf-8') as f:
+                f.write(imgs_file)
+                f.write(' ' + str(label))
+                f.write('\n')
+
+        print(f"Save data finish, data number: {len(os.listdir(rc_npy_path))}")
+
+    def get_img(self, txt_path):
+        """
+            Read txt file.
+        """
+        with open(txt_path, mode='r', encoding='utf-8') as f:
+            imgs_info = f.readlines()
+            imgs_info = list(map(lambda x: x.strip().split(' '), imgs_info))
+            return imgs_info
+
+    def __getitem__(self, index):
+        """
+        After RC processing, transforms rc_data and return (rc_images, labels) according to the given indexes.
+
+        """
+        img_path, label = self.img_info[index]
+        img = np.load(img_path)
+        label = int(label)
+
+        print(img.shape)  # (18, 32, 32)
+        img = img.transpose((1,2,0))
+        print(img.shape)  # (18, 32, 32)
+
+        img = self.rc_trans(img)
+
+        return img, label
+
+    def __len__(self):
+        return len(self.img_info[0])
 
 
 def get_network(args):
@@ -109,6 +254,7 @@ def get_network(args):
         net = net.cuda()
 
     return net
+
 
 def get_training_dataloader(mean, std, batch_size=16, num_workers=2, shuffle=True):
     """ return training dataloader
@@ -136,6 +282,7 @@ def get_training_dataloader(mean, std, batch_size=16, num_workers=2, shuffle=Tru
 
     return cifar10_training_loader
 
+
 def get_test_dataloader(mean, std, batch_size=16, num_workers=2, shuffle=True):
     """ return training dataloader
     Args:
@@ -157,6 +304,7 @@ def get_test_dataloader(mean, std, batch_size=16, num_workers=2, shuffle=True):
         cifar10_test, shuffle=shuffle, num_workers=num_workers, batch_size=batch_size)
 
     return cifar10_test_loader
+
 
 def compute_mean_std(dataset):
     """
@@ -213,6 +361,7 @@ def get_mean_std(data):
 
     return mean, std
 
+
 class WarmUpLR(LRScheduler):
     """warmup_training learning rate scheduler
     Args:
@@ -229,6 +378,7 @@ class WarmUpLR(LRScheduler):
         rate to base_lr * m / total_iters
         """
         return [base_lr * self.last_epoch / (self.total_iters + 1e-8) for base_lr in self.base_lrs]
+
 
 def most_recent_folder(net_weights, fmt):
     """
@@ -248,32 +398,236 @@ def most_recent_folder(net_weights, fmt):
     return folders[-1]
 
 
+class LoadRcData(dataset.Dataset):  # 注意父类的名称，不能写dataset
+    def __init__(self, pkl_path):
+        super(LoadRcData, self).__init__()
+
+        self.img_info = self.get_img(pkl_path)
+
+        self.transforms = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(self.mean, self.std)
+        ])
+
+    # 这个函数是用来读txt文档的
+    def get_img(self, pkl_path):
+        with open(pkl_path, mode="rb") as load_file:
+            data = pickle.load(load_file)
+
+        self.mean = data['mean']
+        self.std = data['std']
+
+        return data['images'], data['labels']
+
+    def __getitem__(self, index):
+
+        img, label = self.img_info[0][index], self.img_info[1][index]
+        print(img.shape)
+        print(label)
+        img = self.transforms(img)
+        label = int(label)
+
+        return img, label
+
+    def __len__(self):
+        return len(self.img_info[0])
+
+
+class RcPreprocess:
+    def __init__(self, userDataset=None, train=True, save_path=None):
+        super(RcPreprocess, self).__init__()
+        self.mean = []
+        self.std = []
+        self.dataset = userDataset
+        self.train = train
+        self.save_path = save_path
+
+        # 定义储层的相关参数
+        np.random.seed(42)
+
+        self.inSize = 3 * 32 * 32
+        self.resSize = 6
+
+        self.initLen = 100  # int(0.01 * trainLen)  # the number to "wash out" the initial state x0
+        self.dataLen = len(self.dataset.data) - self.initLen
+
+        self.a = 0.3
+        self.rho = 0.95  # spectral radius
+        self.Win = np.random.randn(1, self.resSize)
+        self.W = np.random.randn(self.resSize, self.resSize)
+        self.X = np.zeros((self.dataLen, self.inSize, self.resSize))
+        self.x = np.zeros((self.inSize, self.resSize))
+
+        print('Calculating spectral radius...')
+        self.rhoW = max(abs(np.linalg.eig(self.W)[0]))  # linalg.eig(W)[0]:特征值 linalg.eig(W)[1]:特征向量
+        print("Before normalized, spectral radius: rhoW = ", self.rhoW)
+        self.W *= self.rho / self.rhoW  # 归一化的方式：除以最大特征的绝对值，乘以0.9 spectral radius 1.25
+        self.rhoW = max(abs(np.linalg.eig(self.W)[0]))
+        print("After normalized, spectral radius: rhoW = ", self.rhoW)
+
+        if self.dataset is not None:
+            self.rc_reprocess()
+            self.save_data()
+        else:
+            raise ValueError("The userDataset is None, please check the userDataset!")
+
+    def rc_reprocess(self):
+        """
+            RC preprocessing.
+        """
+        original_images = self.dataset.data  # (50000, 32, 32, 3) (50000,)(list)
+        # (50000, 32, 32, 3)->(50000, 3, 32, 32)->(50000, 3072, 1)
+        images = original_images.transpose((0, 3, 1, 2)).reshape(-1, 3 * 32 * 32, 1)
+        self.labels = self.dataset.targets
+        self.labels = self.labels[self.initLen:]
+
+        origin_num_samples = images.shape[0]
+        for idx in range(origin_num_samples):
+            u = images[idx]
+            self.x = (1 - self.a) * self.x + self.a * np.tanh(np.dot(u, self.Win) + + np.dot(self.x, self.W))
+
+            if idx >= self.initLen:
+                self.X[idx - self.initLen] = self.x  # 这里只有x，没有u和偏置, 由于后面没有了Yout,因此不记录输入u
+
+        in_channel = 3 * self.resSize
+        self.X = self.X.reshape(-1, in_channel, 32, 32)
+        if len(self.X) != len(self.labels):
+            raise ValueError(f"The number of data:{len(self.X)} is not equal the number of labels:{len(self.labels)}!")
+        print(f"RC samples length : {len(self.X)}, labels length : {len(self.labels)}")
+
+        for i in range(in_channel):
+            self.mean.append(np.mean(self.X[:, i, :, :]))
+            self.std.append(np.std(self.X[:, i, :, :]))
+
+        return self.X, self.labels
+
+    def save_data(self):
+        if not os.path.exists(self.save_path):
+            os.makedirs(self.save_path)
+
+        if self.train:
+            save_file = self.save_path + 'train_data.pkl'
+        else:
+            save_file = self.save_path + 'test_data.pkl'
+        if os.path.exists(save_file):
+            return
+
+        rc_dataset = dict()
+        rc_dataset['images'] = self.X
+        rc_dataset['labels'] = self.labels
+        rc_dataset['mean'] = self.mean
+        rc_dataset['std'] = self.std
+
+        with open(save_file, mode="wb") as save_file:
+            pickle.dump(rc_dataset, save_file)
+
 
 if __name__ == "__main__":
 
+    # from torchvision import datasets
+    # from torch.utils.data import dataloader
+    #
+    # origin_train_dataset = datasets.CIFAR10('cifar10', train=True, download=True)
+    # origin_test_dataset = datasets.CIFAR10('cifar10', train=False, download=True)
+    #
+    # train_path = './data/train/'
+    # test_path = './data/test/'
+    #
+    # RcPreprocess(origin_train_dataset, train=True, save_path=train_path)
+    # RcPreprocess(origin_test_dataset, train=False, save_path=test_path)
+    #
+    # train_data = train_path + 'train_data.pkl'
+    # test_data = test_path + 'test_data.pkl'
+    #
+    # BATCH_SIZE = 2
+    #
+    # train_dataset = LoadRcData(train_data)
+    # test_dataset = LoadRcData(test_data)
+    #
+    # train_loader = dataloader.DataLoader(train_dataset,
+    #                           batch_size=BATCH_SIZE,
+    #                           num_workers=4,
+    #                           shuffle=True,
+    #                           drop_last=True)
+    # test_loader = dataloader.DataLoader(test_dataset,
+    #                          batch_size=BATCH_SIZE,
+    #                          num_workers=4,
+    #                          shuffle=False,
+    #                          drop_last=False)
+    # for imgs, labels in train_loader:
+    #     print(imgs)
+    #     print(imgs.shape)
+    #     print(labels)
+    #     print(len(labels))
+
+    # dummy_dataloader = dataloader.DataLoader(dataset=dummy_dataset,
+    #                                          batch_size=BATCH_SIZE,
+    #                                          shuffle=True,
+    #                                          drop_last=True)
+    #
+    # for image, label in dummy_dataloader:
+    #     print(image)
+    #     print(image.shape)
+    #     print(label)
+    #     print(label.shape)
+
+    from torchvision import datasets
     from torch.utils.data import dataloader
+
+    origin_train_dataset = datasets.CIFAR10('cifar10', train=True, download=True)
+    origin_test_dataset = datasets.CIFAR10('cifar10', train=False, download=True)
+
+    train_txt_path = './data/train/labels/labels.txt'
+    test_txt_path = './data/test/labels/labels.txt'
+
+    rc_train_dataset = MyLoadRcData(origin_train_dataset, train=True, txt_path=train_txt_path)
+    rc_test_dataset = MyLoadRcData(origin_test_dataset, train=False, txt_path=test_txt_path)
+
     BATCH_SIZE = 2
 
-    pkl_path = './dummy_dataset.pkl'
-    dummy_dataset = LoadImgXOpticalData(pkl_path)
-    dummy_dataloader = dataloader.DataLoader(dataset=dummy_dataset,
-                                             batch_size=BATCH_SIZE,
-                                             shuffle=True,
-                                             drop_last=True)
+    train_loader = dataloader.DataLoader(rc_train_dataset,
+                              batch_size=BATCH_SIZE,
+                              num_workers=0,
+                              shuffle=True,
+                              drop_last=False)
+    test_loader = dataloader.DataLoader(rc_test_dataset,
+                             batch_size=BATCH_SIZE,
+                             num_workers=0,
+                             shuffle=False,
+                             drop_last=False)
 
-    for image, label in dummy_dataloader:
-        print(image)
-        print(image.shape)
-        print(label)
-        print(label.shape)
+    for imgs, labels in train_loader:
+        print(imgs)
+        print(imgs.shape)
+        print(labels)
+        print(len(labels))
+
+
+    #
+    # from torch.utils.data import dataloader
+    # BATCH_SIZE = 2
+    #
+    # pkl_path = './dummy_dataset.pkl'
+    # dummy_dataset = LoadImgXOpticalData(pkl_path)
+    # print(len(dummy_dataset))
+    # dummy_dataloader = dataloader.DataLoader(dataset=dummy_dataset,
+    #                                          batch_size=BATCH_SIZE,
+    #                                          shuffle=True,
+    #                                          drop_last=True)
+    #
+    # for image, label in dummy_dataloader:
+    #     print(image)
+    #     print(image.shape)
+    #     print(label)
+    #     print(label.shape)
 
     # from torchvision import datasets
-    # train_cifar_dataset = datasets.CIFAR10('cifar10', train=True, download=False)
-    # test_cifar_dataset = datasets.CIFAR10('cifar10', train=False, download=False)
+    # train_dataset = datasets.CIFAR10('cifar10', train=True, download=False)
+    # test_dataset = datasets.CIFAR10('cifar10', train=False, download=False)
 
-    # print(train_cifar_dataset.data.shape)  # (50000, 32, 32, 3)
-    # train_mean, train_std = compute_mean_std(train_cifar_dataset)
-    # test_mean, test_std = compute_mean_std(test_cifar_dataset)
+    # print(train_dataset.data.shape)  # (50000, 32, 32, 3)
+    # train_mean, train_std = compute_mean_std(train_dataset)
+    # test_mean, test_std = compute_mean_std(test_dataset)
     # # (0.49139967861519607, 0.48215840839460783, 0.44653091444546567) (0.2470322324632819, 0.24348512800005573, 0.26158784172796434)
     # print(train_mean, train_std)
     # # # (0.4942142800245098, 0.4851313890165441, 0.4504090927542892) (0.24665251509498004, 0.24289226346005355, 0.26159237802202373)
@@ -296,15 +650,15 @@ if __name__ == "__main__":
     #
     # train_data_batches = []
     # test_data_batches = []
-    # for i in range(train_cifar_dataset.data.shape[0]):
-    #     # print(train_cifar_dataset.data[i].shape)  # (32, 32, 3)
-    #     train_data = train_data_transform(train_cifar_dataset.data[i])
+    # for i in range(train_dataset.data.shape[0]):
+    #     # print(train_dataset.data[i].shape)  # (32, 32, 3)
+    #     train_data = train_data_transform(train_dataset.data[i])
     #     train_data = train_data.reshape(3072,)
     #     train_data_batches.append(train_data)
     # train_data_stack = np.stack(train_data_batches)
     #
-    # for i in range(test_cifar_dataset.data.shape[0]):
-    #     test_data = test_data_transform(test_cifar_dataset.data[i])
+    # for i in range(test_dataset.data.shape[0]):
+    #     test_data = test_data_transform(test_dataset.data[i])
     #     test_data = test_data.reshape(3072, )
     #     test_data_batches.append(test_data)
     # test_data_stack = np.stack(test_data_batches)

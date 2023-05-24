@@ -20,7 +20,7 @@ import time
 def train(lr=1e-1):
     # 模型
     model = resnet18()
-    model.conv1 = torch.nn.Conv2d(3, 64, 3, stride=1, padding=1, bias=False)  # 首层改成3x3卷积核
+    model.conv1 = torch.nn.Conv2d(3, 64, 3, stride=1, padding=1, bias=False)  # 首层改成3x3卷积核,!!!这里需要给成3*6个通道数
     model.maxpool = torch.nn.MaxPool2d(1, 1, 0)  # 图像太小 本来就没什么特征 所以这里通过1x1的池化核让池化层失效
     # 交叉熵
     criterion = torch.nn.CrossEntropyLoss()
@@ -178,9 +178,13 @@ if __name__ == '__main__':
         transforms.Normalize(test_mean, test_std)
     ])
 
+    # 获取数据集
     train_cifar_dataset = datasets.CIFAR10('cifar10', train=True, download=False, transform=train_data_transform)
     test_cifar_dataset = datasets.CIFAR10('cifar10', train=False, download=False, transform=test_data_transform)
     # train_cifar_dataset, val_cifar_dataset = torch.utils.data.random_split(train_cifar_dataset, [45000, 5000])
+
+    print(train_cifar_dataset.data.shape)
+    print(train_cifar_dataset.targets)
 
     # 构建好Dataset后，就可以使用DataLoader来按批次读入数据了
     train_loader = torch.utils.data.DataLoader(train_cifar_dataset,
