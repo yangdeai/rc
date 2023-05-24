@@ -228,7 +228,7 @@ class MyLoadRcData(dataset.Dataset):  # 注意父类的名称，不能写dataset
 
         print(img.shape)  # (18, 32, 32)
         img = img.transpose((1,2,0))
-        print(img.shape)  # (18, 32, 32)
+        print(img.shape)  # (32, 32, 18)
 
         img = self.rc_trans(img)
 
