@@ -183,8 +183,6 @@ if __name__ == '__main__':
     test_cifar_dataset = datasets.CIFAR10('cifar10', train=False, download=False, transform=test_data_transform)
     # train_cifar_dataset, val_cifar_dataset = torch.utils.data.random_split(train_cifar_dataset, [45000, 5000])
 
-    print(train_cifar_dataset.data.shape)
-    print(train_cifar_dataset.targets)
 
     # 构建好Dataset后，就可以使用DataLoader来按批次读入数据了
     train_loader = torch.utils.data.DataLoader(train_cifar_dataset,

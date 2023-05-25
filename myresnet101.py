@@ -165,6 +165,7 @@ if __name__ == '__main__':
     # 数据读取
     # cifar10数据集为例给出构建Dataset类的方式
     # “data_transform”可以对图像进行一定的变换，如翻转、裁剪、归一化等操作，可自己定义
+    # imageNet的均值和标准差
     train_mean, train_std = (0.49144, 0.48222, 0.44652), (0.24702, 0.24349, 0.26166)
     test_mean, test_std = (0.49421, 0.48513, 0.45041), (0.24665, 0.24289, 0.26159)
     train_data_transform = transforms.Compose([
@@ -178,15 +179,15 @@ if __name__ == '__main__':
         transforms.Normalize(test_mean, test_std)
     ])
 
-    train_cifar_dataset = datasets.CIFAR10('cifar10', train=True, download=False, transform=train_data_transform)
-    test_cifar_dataset = datasets.CIFAR10('cifar10', train=False, download=False, transform=test_data_transform)
-    # train_cifar_dataset, val_cifar_dataset = torch.utils.data.random_split(train_cifar_dataset, [45000, 5000])
+    train_dataset = datasets.CIFAR10('cifar10', train=True, download=True, transform=train_data_transform)
+    test_dataset = datasets.CIFAR10('cifar10', train=False, download=True, transform=test_data_transform)
+    # train_dataset, val_cifar_dataset = torch.utils.data.random_split(train_dataset, [45000, 5000])
 
     # 构建好Dataset后，就可以使用DataLoader来按批次读入数据了
-    train_loader = torch.utils.data.DataLoader(train_cifar_dataset,
+    train_loader = torch.utils.data.DataLoader(train_dataset,
                                                batch_size=batch_size, num_workers=4,
                                                shuffle=True, drop_last=True)
-    test_loader = torch.utils.data.DataLoader(test_cifar_dataset,
+    test_loader = torch.utils.data.DataLoader(test_dataset,
                                               batch_size=batch_size, num_workers=4,
                                               shuffle=False)
     # val_loader = torch.utils.data.DataLoader(val_cifar_dataset,
@@ -224,8 +225,8 @@ if __name__ == '__main__':
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
     logging.info("===   !!!START TRAINING!!!   ===")
-    # logging.info('train_data_num: {}, validation_data_num: {}'.format(len(train_cifar_dataset), len(val_cifar_dataset)))
-    logging.info('train_data_num: {}, validation_data_num: {}'.format(len(train_cifar_dataset), len(test_cifar_dataset)))
+    # logging.info('train_data_num: {}, validation_data_num: {}'.format(len(train_dataset), len(val_cifar_dataset)))
+    logging.info('train_data_num: {}, validation_data_num: {}'.format(len(train_dataset), len(test_dataset)))
     train(lr=LR)
     logging.info("===   !!! END TRAINING !!!   ===")
     logging.info("\n\n\n\n")

@@ -23,8 +23,10 @@ import numpy as np
 import torch
 from torch.optim.lr_scheduler import LRScheduler
 import torchvision
+from torchvision import datasets
 import torchvision.transforms as transforms
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, RandomSampler, BatchSampler
+
 
 from torch.utils.data import dataset
 
@@ -106,8 +108,8 @@ class MyLoadRcData(dataset.Dataset):  # 注意父类的名称，不能写dataset
         self.inSize = 3 * 32 * 32
         self.resSize = 6
 
-        self.initLen = 100  # int(0.01 * trainLen)  # the number to "wash out" the initial state x0
-        self.dataLen = len(userDataset.data) - self.initLen
+        self.initLen = 0  # int(0.01 * trainLen)  # 0 represents don't use "wash out"
+        self.dataLen = len(userDataset.data) - self.initLen  #
 
         self.a = 0.3
         self.rho = 0.95  # spectral radius
@@ -125,7 +127,8 @@ class MyLoadRcData(dataset.Dataset):  # 注意父类的名称，不能写dataset
 
         if userDataset is not None:
             self.rc_reprocess(userDataset)
-            self.save_data()
+            # 不保存数据
+            # self.save_data()
             self.img_info = self.get_img(txt_path)
         else:
             raise ValueError("The userDataset is None, please check the userDataset!")
@@ -145,7 +148,7 @@ class MyLoadRcData(dataset.Dataset):  # 注意父类的名称，不能写dataset
         """
             RC preprocessing.
         """
-        original_images = userDataset.data  # (50000, 32, 32, 3) (50000,)(list)
+        original_images = userDataset.data  # 原始数据图像: np.array(50000, 32, 32, 3) (50000,)(list)
         # (50000, 32, 32, 3)->(50000, 3, 32, 32)->(50000, 3072, 1)
         # images = original_images.transpose((0, 3, 1, 2)).reshape(-1, 3 * 32 * 32, 1)
         images = original_images.reshape(-1, 3 * 32 * 32, 1)
@@ -161,15 +164,15 @@ class MyLoadRcData(dataset.Dataset):  # 注意父类的名称，不能写dataset
                 self.X[idx - self.initLen] = self.x  # 这里只有x，没有u和偏置, 由于后面没有了Yout,因此不记录输入u
 
         in_channel = 3 * self.resSize
-        self.X = self.X.reshape(-1, in_channel, 32, 32)
+        self.X = self.X.reshape(-1, 32, 32, in_channel)
         if len(self.X) != len(self.labels):
             raise ValueError(f"The number of data:{len(self.X)} is not equal the number of labels:{len(self.labels)}! "
                              f"Please check them again!")
         print(f"RC samples length : {len(self.X)}, labels length : {len(self.labels)}")
 
         for i in range(in_channel):
-            self.mean.append(np.mean(self.X[:, i, :, :]))
-            self.std.append(np.std(self.X[:, i, :, :]))
+            self.mean.append(np.mean(self.X[:, :, :, i]))
+            self.std.append(np.std(self.X[:, :, :, i]))
 
         return self.X, self.labels
 
@@ -220,17 +223,16 @@ class MyLoadRcData(dataset.Dataset):  # 注意父类的名称，不能写dataset
     def __getitem__(self, index):
         """
         After RC processing, transforms rc_data and return (rc_images, labels) according to the given indexes.
-
+        从这里可以看出是一个一个的样本本往外拿的，但是在光的仿真中是一个batch,一个batch的往外拿的，所以要写这这种batch的形式。
         """
         img_path, label = self.img_info[index]
         img = np.load(img_path)
         label = int(label)
 
-        print(img.shape)  # (18, 32, 32)
-        img = img.transpose((1,2,0))
-        print(img.shape)  # (32, 32, 18)
+        # print(img.shape)  # (32, 32, 18)
 
-        img = self.rc_trans(img)
+        img = self.rc_trans(img)  # 转换之后变成
+        print(img.shape)  # torch.Size([18, 32, 32]) 这里变成了torch.tensor了,而且维度顺序发生了改变
 
         return img, label
 
@@ -522,8 +524,83 @@ class RcPreprocess:
             pickle.dump(rc_dataset, save_file)
 
 
+# fix random seed
+def same_seeds(seed):
+    torch.manual_seed(seed)  # 固定随机种子（CPU）
+    np.random.seed(seed)  # 保证后续使用random函数时，产生固定的随机数
+    if torch.cuda.is_available():  # 固定随机种子（GPU)
+        torch.cuda.manual_seed(seed)  # 为当前GPU设置
+        # torch.cuda.manual_seed_all(seed)  # 为所有GPU设置
+        torch.backends.cudnn.benchmark = True # False  # GPU、网络结构固定，可设置为True
+        torch.backends.cudnn.deterministic = True  # 固定网络结构
+
+
+class OptProject:
+    def __init__(self, userDataset=None, batch_size=8):
+
+        self.set_seed(42)
+
+        # 定义储层的相关参数
+        self.resSize = 6
+        self.batch_size = batch_size
+
+        self.dataset = userDataset
+        # np.array(50000, 32, 32, 3) (50000,)(list)
+        self.origin_data = self.dataset.data
+        self.inSize = self.origin_data.shape[1] * self.origin_data.shape[2] * self.origin_data.shape[3]
+        self.data = self.origin_data.reshape(-1, self.inSize, 1)  # (50000, 3072, 1)
+        self.labels = self.dataset.targets
+        self.dataLen = len(self.data)
+
+        self.a = 0.3
+        self.rho = 0.9  # spectral radius
+        self.Win = torch.randn(1, self.resSize)
+        self.W = torch.randn(self.resSize, self.resSize)
+        self.X = torch.zeros((self.dataLen, self.inSize, self.resSize))
+        self.x = torch.zeros((self.batch_size, self.inSize, self.resSize))
+
+        print('Calculating spectral radius...')
+        self.rhoW = max(abs(np.linalg.eig(self.W.numpy())[0]))  # linalg.eig(W)[0]:特征值 linalg.eig(W)[1]:特征向量
+        print("Before normalized, spectral radius: rhoW = ", self.rhoW)
+        self.W *= self.rho / self.rhoW  # 归一化的方式：除以最大特征的绝对值，乘以 spectral radius 1.25 0.9
+        self.rhoW = max(abs(np.linalg.eig(self.W.numpy())[0]))
+        print("After normalized, spectral radius: rhoW = ", self.rhoW)
+
+        self.batch_idxes = BatchSampler(RandomSampler(self.data, replacement=False),
+                                        batch_size=self.batch_size,
+                                        drop_last=False)
+
+    def rc_reprocess(self):
+        """
+            RC preprocessing.
+        """
+
+        for idx in self.batch_idxes:
+            u = torch.from_numpy(self.data[idx]).to(torch.float32)
+            self.x = (1 - self.a) * self.x + self.a * torch.tanh(torch.matmul(u, self.Win) + torch.matmul(self.x, self.W))
+
+            yield self.x.reshape(-1, 3 * self.resSize, 32, 32)
+
+    def set_seed(self, seed):
+        torch.manual_seed(seed)  # 固定随机种子（CPU）
+        np.random.seed(seed)  # 保证后续使用random函数时，产生固定的随机数
+        if torch.cuda.is_available():  # 固定随机种子（GPU)
+            torch.cuda.manual_seed(seed)  # 为当前GPU设置
+            torch.backends.cudnn.benchmark = True  # False  # GPU、网络结构固定，可设置为True
+            torch.backends.cudnn.deterministic = True  # 固定网络结构
+
+
+
 if __name__ == "__main__":
 
+    batch_size = 128
+    train_dataset = datasets.CIFAR10('cifar10', train=True, download=False)
+    optProjection = OptProject(train_dataset, batch_size=batch_size)
+    gen_data = optProjection.rc_reprocess()
+    for data in gen_data:
+        print(data.size())  # torch.Size([5, 18, 32, 32])
+
+    # # all save
     # from torchvision import datasets
     # from torch.utils.data import dataloader
     #
@@ -571,36 +648,38 @@ if __name__ == "__main__":
     #     print(label)
     #     print(label.shape)
 
-    from torchvision import datasets
-    from torch.utils.data import dataloader
 
-    origin_train_dataset = datasets.CIFAR10('cifar10', train=True, download=True)
-    origin_test_dataset = datasets.CIFAR10('cifar10', train=False, download=True)
-
-    train_txt_path = './data/train/labels/labels.txt'
-    test_txt_path = './data/test/labels/labels.txt'
-
-    rc_train_dataset = MyLoadRcData(origin_train_dataset, train=True, txt_path=train_txt_path)
-    rc_test_dataset = MyLoadRcData(origin_test_dataset, train=False, txt_path=test_txt_path)
-
-    BATCH_SIZE = 2
-
-    train_loader = dataloader.DataLoader(rc_train_dataset,
-                              batch_size=BATCH_SIZE,
-                              num_workers=0,
-                              shuffle=True,
-                              drop_last=False)
-    test_loader = dataloader.DataLoader(rc_test_dataset,
-                             batch_size=BATCH_SIZE,
-                             num_workers=0,
-                             shuffle=False,
-                             drop_last=False)
-
-    for imgs, labels in train_loader:
-        print(imgs)
-        print(imgs.shape)
-        print(labels)
-        print(len(labels))
+    # # single save
+    # from torchvision import datasets
+    # from torch.utils.data import dataloader
+    #
+    # origin_train_dataset = datasets.CIFAR10('cifar10', train=True, download=True)
+    # origin_test_dataset = datasets.CIFAR10('cifar10', train=False, download=True)
+    #
+    # train_txt_path = './data/train/labels/labels.txt'
+    # test_txt_path = './data/test/labels/labels.txt'
+    #
+    # rc_train_dataset = MyLoadRcData(origin_train_dataset, train=True, txt_path=train_txt_path)
+    # rc_test_dataset = MyLoadRcData(origin_test_dataset, train=False, txt_path=test_txt_path)
+    #
+    # BATCH_SIZE = 2
+    #
+    # train_loader = dataloader.DataLoader(rc_train_dataset,
+    #                           batch_size=BATCH_SIZE,
+    #                           num_workers=0,
+    #                           shuffle=True,
+    #                           drop_last=False)
+    # test_loader = dataloader.DataLoader(rc_test_dataset,
+    #                          batch_size=BATCH_SIZE,
+    #                          num_workers=0,
+    #                          shuffle=False,
+    #                          drop_last=False)
+    #
+    # for imgs, labels in train_loader:
+    #     print(imgs)
+    #     print(imgs.shape)  # torch.Size([2, 18, 32, 32])
+    #     print(labels)  # torch.Size([2, 18, 32, 32])
+    #     print(len(labels))
 
 
     #
@@ -674,7 +753,23 @@ if __name__ == "__main__":
     # # (0.060680583, 0.11857232, 0.11297002)(1.1560373, 1.1133307, 1.1015073)
 
 
-    
+    #     self.train_mean = (0.49144, 0.48222, 0.44652)
+    #     self.train_std = (0.24702, 0.24349, 0.26166)
+    #     self.train_transforms = transforms.Compose([
+    #         transforms.ToTensor(),
+    #         transforms.RandomCrop(32, padding=4),  # 先四周填充0，在吧图像随机裁剪成32*32
+    #         transforms.RandomHorizontalFlip(p=0.5),  # 随机水平翻转 选择一个概率概率
+    #         transforms.Normalize(self.train_mean, self.train_std)
+    #     ])
+    #     self.before_rc_preprocess()
+    # # def before_rc_preprocess(self):
+    #     if True:
+    #         for idx in range(len(self.origin_data)):
+    #             self.train_transforms(self.origin_data[idx])  # 只能一个个的处理
+    #         pass
+    #     else:
+    #         pass
+    #
     
     
     
