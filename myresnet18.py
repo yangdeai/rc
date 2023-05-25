@@ -57,8 +57,8 @@ def train(lr=1e-1):
                 labels = labels.to(device)
 
                 # # Write the network graph at epoch 0, batch 0
-                # if epoch == 0 and iter == 0:
-                #     writer.add_graph(model, input_to_model=(images, labels)[0])
+                if epoch == 0 and iter == 0:
+                    writer.add_graph(model, input_to_model=(images, labels)[0])
                 # writer.add_images('mini_batch_images', images, iter + (total_iter * epoch))
 
                 outputs = model(images)

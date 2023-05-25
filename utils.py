@@ -21,6 +21,7 @@ import pickle
 import numpy as np
 
 import torch
+from PIL.Image import Image
 from torch.optim.lr_scheduler import LRScheduler
 import torchvision
 from torchvision import datasets
@@ -240,20 +241,20 @@ class MyLoadRcData(dataset.Dataset):  # 注意父类的名称，不能写dataset
         return len(self.img_info[0])
 
 
-def get_network(args):
+def get_network(network):
     """ return given network
     """
 
-    if args.net == 'vgg16':
+    if network == 'resnet101':
         from models.resnet import resnet101
         net = resnet101()
+    elif network == 'resnet18':
+        from models.resnet import resnet18
+        net = resnet18()
 
     else:
         print('the network name you have entered is not supported yet')
         sys.exit()
-
-    if args.gpu:  # use_gpu
-        net = net.cuda()
 
     return net
 
@@ -535,7 +536,7 @@ def same_seeds(seed):
         torch.backends.cudnn.deterministic = True  # 固定网络结构
 
 
-class OptProject:
+class RcProject:
     def __init__(self, userDataset=None, batch_size=8):
 
         self.set_seed(42)
@@ -568,7 +569,7 @@ class OptProject:
 
         self.batch_idxes = BatchSampler(RandomSampler(self.data, replacement=False),
                                         batch_size=self.batch_size,
-                                        drop_last=False)
+                                        drop_last=True)
 
     def rc_reprocess(self):
         """
@@ -590,14 +591,14 @@ class OptProject:
             torch.backends.cudnn.deterministic = True  # 固定网络结构
 
 
-
 if __name__ == "__main__":
 
     batch_size = 128
     train_dataset = datasets.CIFAR10('cifar10', train=True, download=False)
-    optProjection = OptProject(train_dataset, batch_size=batch_size)
-    gen_data = optProjection.rc_reprocess()
-    for data in gen_data:
+    rcPro = RcProject(train_dataset, batch_size=batch_size)
+    train_loader = rcPro.rc_reprocess()
+    # print(len(list(train_loader)))  # 390
+    for data in train_loader:
         print(data.size())  # torch.Size([5, 18, 32, 32])
 
     # # all save
