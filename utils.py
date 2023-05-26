@@ -537,9 +537,10 @@ def same_seeds(seed):
 
 
 class RcProject:
-    def __init__(self, userDataset=None, batch_size=8):
+    def __init__(self, userDataset=None, batch_size=8, train=True):
 
         self.set_seed(42)
+        self.train = train
 
         # 定义储层的相关参数
         self.resSize = 6
@@ -560,7 +561,7 @@ class RcProject:
         self.X = torch.zeros((self.dataLen, self.inSize, self.resSize))
         self.x = torch.zeros((self.batch_size, self.inSize, self.resSize))
 
-        print('Calculating spectral radius...')
+        print('Calculating spectral radius for {}'.format('train ...' if self.train else 'test ...'))
         self.rhoW = max(abs(np.linalg.eig(self.W.numpy())[0]))  # linalg.eig(W)[0]:特征值 linalg.eig(W)[1]:特征向量
         print("Before normalized, spectral radius: rhoW = ", self.rhoW)
         self.W *= self.rho / self.rhoW  # 归一化的方式：除以最大特征的绝对值，乘以 spectral radius 1.25 0.9
@@ -576,11 +577,14 @@ class RcProject:
             RC preprocessing.
         """
 
-        for idx in self.batch_idxes:
-            u = torch.from_numpy(self.data[idx]).to(torch.float32)
+        for batch_idx in self.batch_idxes:
+            u = torch.from_numpy(self.data[batch_idx]).to(torch.float32)
             self.x = (1 - self.a) * self.x + self.a * torch.tanh(torch.matmul(u, self.Win) + torch.matmul(self.x, self.W))
 
-            yield self.x.reshape(-1, 3 * self.resSize, 32, 32)
+            rc_output = self.x.reshape(-1, 3 * self.resSize, 32, 32)
+            rc_labels = torch.tensor([self.labels[i] for i in batch_idx], dtype=torch.int64)
+
+            yield rc_output, rc_labels
 
     def set_seed(self, seed):
         torch.manual_seed(seed)  # 固定随机种子（CPU）
@@ -593,13 +597,20 @@ class RcProject:
 
 if __name__ == "__main__":
 
-    batch_size = 128
+    batch_size = 5
     train_dataset = datasets.CIFAR10('cifar10', train=True, download=False)
-    rcPro = RcProject(train_dataset, batch_size=batch_size)
+    rcPro = RcProject(train_dataset, batch_size=batch_size, train=True)
     train_loader = rcPro.rc_reprocess()
     # print(len(list(train_loader)))  # 390
-    for data in train_loader:
-        print(data.size())  # torch.Size([5, 18, 32, 32])
+    for i in range(2):  # 不同的epoch，采样不同
+        print("epoch {}".format(i))
+        for idx, (datas, labels) in enumerate(train_loader):
+            # print(datas.size())  # torch.Size([5, 18, 32, 32])
+            print(labels)
+            # print(len(labels))
+            if idx > 5:
+                break
+
 
     # # all save
     # from torchvision import datasets

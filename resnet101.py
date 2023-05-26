@@ -158,7 +158,7 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='train resnet with cifar10 dataset.')
     parser.add_argument('-net', '--network', type=str, default='resnet101', help='network: resnet101 or rc_resnet_101')
-    parser.add_argument('-num', '--exp_num', type=str, default='0', help='the exp num')
+    parser.add_argument('-exp_num', '--exp_num', type=str, default='0', help='the exp num')
     parser.add_argument('-lr', '--learning_rate', type=float, default=1e-1, help='initial learning rate')
     parser.add_argument('-bs', '--batch_size', type=int, default=128, help='batch size for dataloader')
     parser.add_argument('-me', '--max_epoch', type=int, default=200, help='total epoch to train')
@@ -167,19 +167,15 @@ if __name__ == '__main__':
 
     # file/dir
     exp_name = f'{args.network}_exp{args.exp_num}'
-    weight_dir = f'./weights/{exp_name}'
+    weight_dir = f'/tf_logs/weights/{exp_name}'
     best_weight_pth = weight_dir + f'/max_epoch{args.max_epoch}'
-    log_dir = f'./runs/train/{exp_name}'
-    cloud_server_log_dir = f"/tf_logs/{exp_name}"
+    log_dir = f"/tf_logs/runs/train/{exp_name}"
 
     if not os.path.exists(weight_dir):
         os.makedirs(weight_dir)
 
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
-
-    if not os.path.exists(cloud_server_log_dir):
-        os.makedirs(cloud_server_log_dir)
 
     # log
     logging.basicConfig(filename=log_dir + '.txt',
@@ -188,7 +184,7 @@ if __name__ == '__main__':
                         level=logging.INFO)
 
     # writer = SummaryWriter(log_dir)
-    writer = SummaryWriter(cloud_server_log_dir)
+    writer = SummaryWriter(log_dir)
 
     # seed
     torch.manual_seed(42)
