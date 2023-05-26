@@ -10,7 +10,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torchvision import datasets
 from torch.optim.lr_scheduler import MultiStepLR
 
-from utils import WarmUpLR, get_network
+from utils import WarmUpLR, get_network, RcProject
 from models.resnet import resnet101
 
 import logging
@@ -19,7 +19,6 @@ import argparse
 
 
 def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
-
     model = model.to(device)
     # 训练时间
     start = time.time()
@@ -80,6 +79,11 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
             logging.info("\n")
             logging.info('total time {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
             logging.info('train Loss: {:.4f}[{}], train Acc: {:.4f}'.format(train_loss, epoch_count, train_acc))
+
+        # writer the weights and bias distribution.
+        for name, param in model.named_parameters():
+            writer.add_histogram(name + '_grad', param.grad, epoch)
+            writer.add_histogram(name + '_data', param, epoch)
 
         with torch.set_grad_enabled(False):
             model.eval()
@@ -151,7 +155,7 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='train model with cifar10 dataset.')
+    parser = argparse.ArgumentParser(description='train resnet with cifar10 dataset.')
     parser.add_argument('-net', '--network', type=str, default='resnet101', help='network: resnet101 or rc_resnet_101')
     parser.add_argument('-num', '--exp_num', type=str, default='0', help='the exp num')
     parser.add_argument('-lr', '--learning_rate', type=float, default=1e-1, help='initial learning rate')
@@ -161,7 +165,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # file/dir
-    exp_name = f'{args.network}_exp{args.exp_num}'
+    exp_name = f'rc_{args.network}_exp{args.exp_num}'
     weight_dir = f'./weights/{exp_name}'
     best_weight_pth = weight_dir + f'/max_epoch{args.max_epoch}'
     log_dir = f'./runs/train/{exp_name}'
@@ -191,28 +195,14 @@ if __name__ == '__main__':
 
     # device
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    
+
     # hyper params
     LR = args.learning_rate
     MAX_EPOCH = args.max_epoch
     WARM_EPOCH = args.warm_epoch
-    
-    # model
-    model = get_network(args.network)
-    model.conv1 = torch.nn.Conv2d(3, 64, 3, stride=1, padding=1, bias=False)  # 首层改成3x3卷积核
-    model.maxpool = torch.nn.MaxPool2d(1, 1, 0)  # 通过1x1的池化核让池化层失效
+    BATCH_SIZE = args.batch_size
 
-    # check model
-    logging.info("============== layers needed to train ==============")
-    for name, params in model.named_parameters():
-        if params.requires_grad:
-            logging.info(name)
-
-    # loss function
-    loss_fn = torch.nn.CrossEntropyLoss()
-    # optimizer
-    optimizer = torch.optim.SGD(model.parameters(), lr=LR, momentum=0.9, weight_decay=1e-4)
-
+    # prepared data
     # transforms
     train_mean, train_std = (0.49144, 0.48222, 0.44652), (0.24702, 0.24349, 0.26166)
     test_mean, test_std = (0.49421, 0.48513, 0.45041), (0.24665, 0.24289, 0.26159)
@@ -232,16 +222,29 @@ if __name__ == '__main__':
     test_dataset = datasets.CIFAR10('cifar10', train=False, download=True, transform=test_data_transform)
     # train_dataset, val_cifar_dataset = torch.utils.data.random_split(train_dataset, [45000, 5000])
 
-    # dataloader
-    train_loader = torch.utils.data.DataLoader(train_dataset,
-                                               batch_size=args.batch_size, num_workers=4,
-                                               shuffle=True, drop_last=True)
-    test_loader = torch.utils.data.DataLoader(test_dataset,
-                                              batch_size=args.batch_size, num_workers=4,
-                                              shuffle=False)
-    # val_loader = torch.utils.data.DataLoader(val_cifar_dataset,
-    #                                          batch_size=batch_size, num_workers=4,
-    #                                          shuffle=False)
+    # rc_projection and dataloader
+    train_rc = RcProject(train_dataset, batch_size=BATCH_SIZE, train=True)
+    test_rc = RcProject(test_dataset, batch_size=BATCH_SIZE, train=False)
+    train_loader = train_rc.rc_reprocess()
+    test_loader = test_rc.rc_reprocess()
+
+    # model
+    model = get_network(args.network)
+    # model's in_channel equals rc's out_channel
+    rc_out_channel = 3 * train_rc.resSize
+    model.conv1 = torch.nn.Conv2d(rc_out_channel, 64, 3, stride=1, padding=1, bias=False)  # 首层改成3x3卷积核
+    model.maxpool = torch.nn.MaxPool2d(1, 1, 0)  # 通过1x1的池化核让池化层失效
+
+    # check model
+    logging.info("============== layers needed to train ==============")
+    for name, params in model.named_parameters():
+        if params.requires_grad:
+            logging.info(name)
+
+    # loss function
+    loss_fn = torch.nn.CrossEntropyLoss()
+    # optimizer
+    optimizer = torch.optim.SGD(model.parameters(), lr=LR, momentum=0.9, weight_decay=1e-4)
 
     logging.info("===   !!!START TRAINING!!!   ===")
     # logging.info('train_data_num: {}, validation_data_num: {}'.format(len(train_dataset), len(val_cifar_dataset)))
