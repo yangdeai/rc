@@ -19,17 +19,18 @@ import matplotlib.pyplot as plt
 
 # 加载数据
 # 前2000个数据用来训练，2001-4000的数据用来测试。训练数据中，前100项用来初始化储备池，以让储备池中形成良好的回声之后再开始训练。
-trainLen = 2000  # 这里 是50000
-testLen = 2000  # 这里 是10000
-initLen = 0.01 * trainLen  # 前100项用来初始化储备池
+trainLen = 1000  # 这里 是50000
+testLen = 800  # 这里 是10000
+initLen = int(0.01 * trainLen)  # 前100项用来初始化储备池
 
-data = loadtxt('MackeyGlass_t17.txt')  # (10000,)一万条数据
+# data = loadtxt('MackeyGlass_t17.txt')  # (10000,)一万条数据
 # print(data.shape)  # (10000,)  -- (50000, 3072)
+data = np.random.randn(2000, 3 * 32 * 32)
 
-# 绘制前1000条数据
-plt.figure(0).clear()
-plot(data[0:1000])
-title('A sample of data')
+# # 绘制前1000条数据
+# plt.figure(0).clear()
+# plot(data[0:1000])
+# title('A sample of data')
 
 # 生成ESN储层
 # inSize = outSize = 1  # inSize 输入维数 K  # u(n)是一个输入序列，每个输入u(i)的维度是K，这里设置为=1；y(n)是一个输出序列，每个输出y(i)的维度L也是1
@@ -41,13 +42,13 @@ outSize = 3 * 32 * 32 * expand  # y(n)是一个输出序列，每个输出y(i)�
 resSize = 6  # 储备池规模 N  # 储备池规模是储备池神经元个数
 a = 0.3  # 可以看作储备池更新的速度，可不加，即设为1.  # soft update, a=1的就是hard update.
 
-random.seed(46)  # 设置随机种子
+random.seed(42)  # 设置随机种子
 # 随机初始化 Win 和 W    输入权重Win是输入n(i)和储备池的连接权重,shape=(N, 1+K)，dot(Win,u(n)),shape=(N,1+K)X(1+K,), W是储备池神经元连接矩阵，shape=(N,N)
-# Win = (random.rand(resSize, 1 + inSize) - 0.5) * 1  # 输入矩阵 N * 1+K  (1000, 1 + 3072)， 1 + inSize中的1是偏置的维度
-Win = (random.rand(resSize, 1 + inSize)) * 1  # 输入矩阵 N * 1+K  (1000, 1 + 3072)， 1 + inSize中的1是偏置的维度
-print(Win.shape)  # (1000, 2)  --> (resSize, 3073)
-W = random.rand(resSize, resSize) # - 0.5  # 储备池连接矩阵 N * N (1000, 1000)，???内部权重矩阵W是某时刻神经元与下一时刻神经元的连接，而非普通的互相连接???
-print(W.shape)  # (1000, 1000)  --> (6, 6)
+Win = (random.rand(resSize, 1 + inSize) - 0.5) * 1  # 输入矩阵 N * 1+K  (1000, 1 + 3072)， 1 + inSize中的1是偏置的维度
+# Win = (random.rand(resSize, 1 + inSize)) * 1  # 输入矩阵 N * 1+K  (1000, 1 + 3072)， 1 + inSize中的1是偏置的维度
+# print(Win.shape)  # (1000, 2)  --> (resSize, 3073)
+W = random.rand(resSize, resSize) - 0.5  # 储备池连接矩阵 N * N (1000, 1000)，???内部权重矩阵W是某时刻神经元与下一时刻神经元的连接，而非普通的互相连接???
+# print(W.shape)  # (1000, 1000)  --> (6, 6)
 
 # 对W进行防缩，以满足稀疏的要求。
 # 方案 1 - 直接缩放 (快且有脏数据, 特定储层): W *= 0.135
@@ -69,7 +70,15 @@ Yt = data[None, initLen + 1:trainLen + 1]  # 输出矩阵:每一行是一个时�
 x = zeros((resSize, 1))  # (1000, 1) x是状态矩阵X的一个元素，表示储备池所有神经元(N)在当前时刻的状态
 for t in range(trainLen):
     u = data[t]  # 标量， vstack((1, u)): (2,1)  x:(1000,1)  ### 储备池迭代方程 ###
-    x = (1 - a) * x + a * tanh(dot(Win, vstack((1, u))) + dot(W, x))  # vstack((1, u)):将偏置量1加入输入序列  tanh激活函数
+    # print(u.shape)  # (3072,)
+    # print(np.append(1, u).shape)  # (3073,)
+    # x = (1 - a) * x + a * tanh(dot(Win, vstack((1, u))) + dot(W, x))  # vstack((1, u)):将偏置量1加入输入序列  tanh激活函数
+    # print(dot(Win, np.append(1, u)).shape)  # (6,)  (N, )
+    # print(dot(Win, np.append(1, u)))  # (6,)  (N, ) [-26.66463181  -3.24833247  14.07349386   3.3248409  -13.03810452  -12.96370444]
+    print(dot(W, x).shape) #  (6, 1)
+    x = (1 - a) * x + a * tanh(dot(Win, np.append(1, u)) + dot(W, x))  # vstack((1, u)):将偏置量1加入输入序列  tanh激活函数
+    print(x.shape)  # (6, 6)
+
     if t >= initLen:  # 空转100次后，开始记录储备池状态     从某一时刻开始记录储备的状态，这里的某一时刻是100
         X[:, t - initLen] = vstack((1, u, x))[:, 0]  # 状态矩阵记录了偏置v、输入u和储备池状态x
         # print(vstack((1, u, x)).shape)  # (1002, 1) 1002 = 1 + inSize + resSize
