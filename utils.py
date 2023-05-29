@@ -17,6 +17,7 @@ import re
 import datetime
 import shutil
 import pickle
+import matplotlib.pyplot as plt
 
 import numpy as np
 
@@ -26,7 +27,7 @@ from torch.optim.lr_scheduler import LRScheduler
 import torchvision
 from torchvision import datasets
 import torchvision.transforms as transforms
-from torch.utils.data import DataLoader, RandomSampler, BatchSampler
+from torch.utils.data import DataLoader, RandomSampler, BatchSampler, SequentialSampler
 
 
 from torch.utils.data import dataset
@@ -537,50 +538,69 @@ def same_seeds(seed):
 
 
 class RcProject:
-    def __init__(self, userDataset=None, batch_size=8):
+    def __init__(self, userDataset=None, batch_size=8, train=True):
 
         self.set_seed(42)
+        self.train = train
 
         # 定义储层的相关参数
-        self.resSize = 6
+        self.resSize = 1  # 6
         self.batch_size = batch_size
 
         self.dataset = userDataset
         # np.array(50000, 32, 32, 3) (50000,)(list)
         self.origin_data = self.dataset.data
         self.inSize = self.origin_data.shape[1] * self.origin_data.shape[2] * self.origin_data.shape[3]
-        self.data = self.origin_data.reshape(-1, self.inSize, 1)  # (50000, 3072, 1)
+        # (N,H,W,C)--(N,C,H,W)--(50000, 3072, 1)
+        self.data = self.origin_data.transpose((0, 3, 1, 2)).reshape(-1, self.inSize, 1)
         self.labels = self.dataset.targets
         self.dataLen = len(self.data)
 
-        self.a = 0.3
+        self.a = 1  # 0.3
         self.rho = 0.9  # spectral radius
-        self.Win = torch.randn(1, self.resSize)
-        self.W = torch.randn(self.resSize, self.resSize)
-        self.X = torch.zeros((self.dataLen, self.inSize, self.resSize))
+        # self.Win = torch.randn(1, self.resSize, requires_grad=False)  # requires_grad=False
+        # self.W = torch.randn(self.resSize, self.resSize, requires_grad=False)
+
+        self.Win = torch.ones(1, self.resSize, requires_grad=False)  # requires_grad=False
+        # self.W = torch.ones(self.resSize, self.resSize, requires_grad=False)
+
+        # self.X = torch.zeros((self.dataLen, self.inSize, self.resSize))
         self.x = torch.zeros((self.batch_size, self.inSize, self.resSize))
 
-        print('Calculating spectral radius...')
-        self.rhoW = max(abs(np.linalg.eig(self.W.numpy())[0]))  # linalg.eig(W)[0]:特征值 linalg.eig(W)[1]:特征向量
-        print("Before normalized, spectral radius: rhoW = ", self.rhoW)
-        self.W *= self.rho / self.rhoW  # 归一化的方式：除以最大特征的绝对值，乘以 spectral radius 1.25 0.9
-        self.rhoW = max(abs(np.linalg.eig(self.W.numpy())[0]))
-        print("After normalized, spectral radius: rhoW = ", self.rhoW)
+        # print('Calculating spectral radius for {}'.format('train ...' if self.train else 'test ...'))
+        # self.rhoW = max(abs(np.linalg.eig(self.W.numpy())[0]))  # linalg.eig(W)[0]:特征值 linalg.eig(W)[1]:特征向量
+        # print("Before normalized, spectral radius: rhoW = ", self.rhoW)
+        # self.W *= self.rho / self.rhoW  # 归一化的方式：除以最大特征的绝对值，乘以 spectral radius 1.25 0.9
+        # self.rhoW = max(abs(np.linalg.eig(self.W.numpy())[0]))
+        # print("After normalized, spectral radius: rhoW = ", self.rhoW)
 
-        self.batch_idxes = BatchSampler(RandomSampler(self.data, replacement=False),
+        print("Win :", self.Win, self.Win.dtype)  # Win : tensor([[1.]]) torch.float32
+
+        # self.batch_idxes = BatchSampler(RandomSampler(self.data, replacement=False),
+        #                                 batch_size=self.batch_size,
+        #                                 drop_last=True)
+
+        self.batch_idxes = BatchSampler(SequentialSampler(self.data),
                                         batch_size=self.batch_size,
-                                        drop_last=True)
+                                        drop_last=True)  # Samples elements sequentially, always in the same order.
 
     def rc_reprocess(self):
         """
             RC preprocessing.
         """
 
-        for idx in self.batch_idxes:
-            u = torch.from_numpy(self.data[idx]).to(torch.float32)
-            self.x = (1 - self.a) * self.x + self.a * torch.tanh(torch.matmul(u, self.Win) + torch.matmul(self.x, self.W))
+        for batch_idx in self.batch_idxes:
+            u = torch.from_numpy(self.data[batch_idx]).to(torch.float32)
+            # self.x = (1 - self.a) * self.x + self.a * torch.tanh(torch.matmul(u, self.Win) + torch.matmul(self.x, self.W))
+            self.x = torch.tanh(torch.matmul(u, self.Win))
 
-            yield self.x.reshape(-1, 3 * self.resSize, 32, 32)
+            # print(self.x.size())  # torch.Size([32, 3072, 6])
+            # print(self.x.size(), self.x.dtype)  # torch.Size([5, 3072, 1]) torch.float32
+
+            rc_output = self.x.reshape(-1, 3 * self.resSize, 32, 32)
+            rc_labels = torch.tensor([self.labels[i] for i in batch_idx], dtype=torch.int64)
+
+            yield rc_output, rc_labels
 
     def set_seed(self, seed):
         torch.manual_seed(seed)  # 固定随机种子（CPU）
@@ -593,13 +613,26 @@ class RcProject:
 
 if __name__ == "__main__":
 
-    batch_size = 128
+    batch_size = 4
     train_dataset = datasets.CIFAR10('cifar10', train=True, download=False)
-    rcPro = RcProject(train_dataset, batch_size=batch_size)
-    train_loader = rcPro.rc_reprocess()
+    rcPro = RcProject(train_dataset, batch_size=batch_size, train=True)
     # print(len(list(train_loader)))  # 390
-    for data in train_loader:
-        print(data.size())  # torch.Size([5, 18, 32, 32])
+    for i in range(2):  # 不同的epoch，采样不同
+        print("epoch {}".format(i))
+        train_loader = rcPro.rc_reprocess()
+        for idx, (datas, labels) in enumerate(train_loader):
+            if idx == 0:
+                print(datas.size(), datas[0].dtype)  # torch.Size([5, 3, 32, 32]) torch.float32
+                datas_numpy = datas.numpy()
+                img = np.int8(datas_numpy)
+                print(img, img.dtype)
+                print(labels)
+            # print(len(labels))
+            # if idx > 5:
+            #     break
+
+
+
 
     # # all save
     # from torchvision import datasets
