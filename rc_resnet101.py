@@ -28,17 +28,13 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
     val_last_acc = 0.0
     val_last_loss = np.Inf
     epoch_count = 0
+    # scheduler_optimizer = torch.optim.lr_scheduler.MultiStepLR(optimizer, [50, 80, 120], gamma=0.5,
+    #                                                            last_epoch=-1)
     for epoch in range(MAX_EPOCH):
         train_total_loss = 0
         train_total_num = 0
         train_total_correct = 0
-        if epoch < WARM_EPOCH:
-            lr = 0.01
-            optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=1e-4)
-        elif epoch == WARM_EPOCH:
-            lr = 0.1
-            optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=1e-4)
-        elif epoch_count / 10 == 1 and epoch > WARM_EPOCH:
+        if epoch_count / 50 == 1 and epoch > WARM_EPOCH:
             epoch_count = 0
             lr = lr * 0.5
             optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=1e-4)
@@ -47,6 +43,8 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
         logging.info('-' * 10)
         logging.info("\n")
 
+        # next epoch dataloader
+        train_loader = train_rc.rc_reprocess()
         with torch.set_grad_enabled(True):
             model.train()
             for iter, (images, labels) in enumerate(train_loader):
@@ -69,9 +67,6 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
                 train_total_num += labels.shape[0]
                 train_total_loss += loss.item()
 
-                if iter >= 1:
-                    break
-
             train_loss = train_total_loss / train_total_num
             train_acc = train_total_correct / train_total_num
 
@@ -85,6 +80,8 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
             writer.add_histogram(name + '_grad', param.grad, epoch)
             writer.add_histogram(name + '_data', param, epoch)
 
+        # next epoch dataloader
+        test_loader = test_rc.rc_reprocess()
         with torch.set_grad_enabled(False):
             model.eval()
             val_total_loss = 0
@@ -99,9 +96,6 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
                 val_total_correct += (outputs.argmax(1) == labels).sum().item()
                 val_total_loss += loss.item()
                 val_total_num += labels.shape[0]
-
-                if iter >= 1:
-                    break
 
             val_loss = val_total_loss / val_total_num
             val_acc = val_total_correct / val_total_num
@@ -122,6 +116,8 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
             logging.info('total time {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
             logging.info('valid Loss: {:.4f}[{}], valid Acc: {:.4f}'.format(val_loss, epoch_count, val_acc))
 
+        # scheduler_optimizer.step()
+
         logging.info("\n")
         logging.info('current lr: {:.7f}'.format(optimizer.param_groups[0]['lr']))
         logging.info("\n")
@@ -136,9 +132,6 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
             'train_acc': train_acc * 100,
             'val_acc': val_acc * 100,
         }, epoch)
-
-        if epoch >= 1:
-            break
 
     # train end
     time_elapsed = time.time() - start
@@ -157,9 +150,9 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='train resnet with cifar10 dataset.')
     parser.add_argument('-net', '--network', type=str, default='resnet101', help='network: resnet101 or rc_resnet_101')
-    parser.add_argument('-exp_num', '--exp_num', type=str, default='0', help='the exp num')
-    parser.add_argument('-lr', '--learning_rate', type=float, default=1e-1, help='initial learning rate')
-    parser.add_argument('-bs', '--batch_size', type=int, default=128, help='batch size for dataloader')
+    parser.add_argument('-exp_num', '--exp_num', type=str, default='3', help='the exp num')
+    parser.add_argument('-lr', '--learning_rate', type=float, default=1e-2, help='initial learning rate')
+    parser.add_argument('-bs', '--batch_size', type=int, default=32, help='batch size for dataloader')
     parser.add_argument('-me', '--max_epoch', type=int, default=200, help='total epoch to train')
     parser.add_argument('-we', '--warm_epoch', type=int, default=2, help='warm up training phase')
     args = parser.parse_args()
@@ -198,31 +191,27 @@ if __name__ == '__main__':
     WARM_EPOCH = args.warm_epoch
     BATCH_SIZE = args.batch_size
 
-    # prepared data
-    # transforms
-    train_mean, train_std = (0.49144, 0.48222, 0.44652), (0.24702, 0.24349, 0.26166)
-    test_mean, test_std = (0.49421, 0.48513, 0.45041), (0.24665, 0.24289, 0.26159)
-    train_data_transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.RandomCrop(32, padding=4),
-        transforms.RandomHorizontalFlip(p=0.5),
-        transforms.Normalize(train_mean, train_std)
-    ])
-
-    test_data_transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize(test_mean, test_std)
-    ])
+    # # prepared data transforms
+    # train_mean, train_std = (0.49144, 0.48222, 0.44652), (0.24702, 0.24349, 0.26166)
+    # test_mean, test_std = (0.49421, 0.48513, 0.45041), (0.24665, 0.24289, 0.26159)
+    # train_data_transform = transforms.Compose([
+    #     transforms.ToTensor(),
+    #     transforms.RandomCrop(32, padding=4),
+    #     transforms.RandomHorizontalFlip(p=0.5),
+    #     transforms.Normalize(train_mean, train_std)
+    # ])
+    #
+    # test_data_transform = transforms.Compose([
+    #     transforms.ToTensor(),
+    #     transforms.Normalize(test_mean, test_std)
+    # ])
     # dataset
-    train_dataset = datasets.CIFAR10('cifar10', train=True, download=True, transform=train_data_transform)
-    test_dataset = datasets.CIFAR10('cifar10', train=False, download=True, transform=test_data_transform)
-    # train_dataset, val_cifar_dataset = torch.utils.data.random_split(train_dataset, [45000, 5000])
+    train_dataset = datasets.CIFAR10('cifar10', train=True, download=True)
+    test_dataset = datasets.CIFAR10('cifar10', train=False, download=True)
 
     # rc_projection and dataloader
     train_rc = RcProject(train_dataset, batch_size=BATCH_SIZE, train=True)
     test_rc = RcProject(test_dataset, batch_size=BATCH_SIZE, train=False)
-    train_loader = train_rc.rc_reprocess()
-    test_loader = test_rc.rc_reprocess()
 
     # model
     model = get_network(args.network)

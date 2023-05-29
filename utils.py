@@ -26,7 +26,7 @@ from torch.optim.lr_scheduler import LRScheduler
 import torchvision
 from torchvision import datasets
 import torchvision.transforms as transforms
-from torch.utils.data import DataLoader, RandomSampler, BatchSampler
+from torch.utils.data import DataLoader, RandomSampler, BatchSampler, SequentialSampler
 
 
 from torch.utils.data import dataset
@@ -550,7 +550,8 @@ class RcProject:
         # np.array(50000, 32, 32, 3) (50000,)(list)
         self.origin_data = self.dataset.data
         self.inSize = self.origin_data.shape[1] * self.origin_data.shape[2] * self.origin_data.shape[3]
-        self.data = self.origin_data.reshape(-1, self.inSize, 1)  # (50000, 3072, 1)
+        # (N,H,W,C)--(N,C,H,W)--(50000, 3072, 1)
+        self.data = self.origin_data.transpose((0, 3, 1, 2)).reshape(-1, self.inSize, 1)
         self.labels = self.dataset.targets
         self.dataLen = len(self.data)
 
@@ -568,9 +569,13 @@ class RcProject:
         self.rhoW = max(abs(np.linalg.eig(self.W.numpy())[0]))
         print("After normalized, spectral radius: rhoW = ", self.rhoW)
 
-        self.batch_idxes = BatchSampler(RandomSampler(self.data, replacement=False),
+        # self.batch_idxes = BatchSampler(RandomSampler(self.data, replacement=False),
+        #                                 batch_size=self.batch_size,
+        #                                 drop_last=True)
+
+        self.batch_idxes = BatchSampler(SequentialSampler(self.data),
                                         batch_size=self.batch_size,
-                                        drop_last=True)
+                                        drop_last=True)  # Samples elements sequentially, always in the same order.
 
     def rc_reprocess(self):
         """
@@ -580,6 +585,8 @@ class RcProject:
         for batch_idx in self.batch_idxes:
             u = torch.from_numpy(self.data[batch_idx]).to(torch.float32)
             self.x = (1 - self.a) * self.x + self.a * torch.tanh(torch.matmul(u, self.Win) + torch.matmul(self.x, self.W))
+
+            # print(self.x.size()) torch.Size([32, 3072, 6])
 
             rc_output = self.x.reshape(-1, 3 * self.resSize, 32, 32)
             rc_labels = torch.tensor([self.labels[i] for i in batch_idx], dtype=torch.int64)
@@ -600,16 +607,17 @@ if __name__ == "__main__":
     batch_size = 5
     train_dataset = datasets.CIFAR10('cifar10', train=True, download=False)
     rcPro = RcProject(train_dataset, batch_size=batch_size, train=True)
-    train_loader = rcPro.rc_reprocess()
     # print(len(list(train_loader)))  # 390
     for i in range(2):  # 不同的epoch，采样不同
         print("epoch {}".format(i))
+        train_loader = rcPro.rc_reprocess()
         for idx, (datas, labels) in enumerate(train_loader):
             # print(datas.size())  # torch.Size([5, 18, 32, 32])
-            print(labels)
+            if idx == 0:
+                print(labels)
             # print(len(labels))
-            if idx > 5:
-                break
+            # if idx > 5:
+            #     break
 
 
     # # all save
