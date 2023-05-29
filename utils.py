@@ -553,6 +553,7 @@ class RcProject:
         self.inSize = self.origin_data.shape[1] * self.origin_data.shape[2] * self.origin_data.shape[3]
         # (N,H,W,C)--(N,C,H,W)--(50000, 3072, 1)
         self.data = self.origin_data.transpose((0, 3, 1, 2)).reshape(-1, self.inSize, 1)
+        # self.data = self.origin_data.reshape(-1, self.inSize, 1)
         self.labels = self.dataset.targets
         self.dataLen = len(self.data)
 
@@ -561,7 +562,8 @@ class RcProject:
         # self.Win = torch.randn(1, self.resSize, requires_grad=False)  # requires_grad=False
         # self.W = torch.randn(self.resSize, self.resSize, requires_grad=False)
 
-        self.Win = torch.ones(1, self.resSize, requires_grad=False)  # requires_grad=False
+        # self.Win = torch.ones(1, self.resSize, requires_grad=False)  # requires_grad=False
+        self.Win = torch.randn(1, self.resSize, requires_grad=False)  # requires_grad=False
         # self.W = torch.ones(self.resSize, self.resSize, requires_grad=False)
 
         # self.X = torch.zeros((self.dataLen, self.inSize, self.resSize))
@@ -574,7 +576,7 @@ class RcProject:
         # self.rhoW = max(abs(np.linalg.eig(self.W.numpy())[0]))
         # print("After normalized, spectral radius: rhoW = ", self.rhoW)
 
-        print("Win :", self.Win, self.Win.dtype)  # Win : tensor([[1.]]) torch.float32
+        # print("Win :", self.Win, self.Win.dtype)  # Win : tensor([[1.]]) torch.float32
 
         # self.batch_idxes = BatchSampler(RandomSampler(self.data, replacement=False),
         #                                 batch_size=self.batch_size,
@@ -590,9 +592,20 @@ class RcProject:
         """
 
         for batch_idx in self.batch_idxes:
+            # imgs = torch.from_numpy(self.data[batch_idx]).to(torch.uint8)  # uint8才能显示
+            # self.imshow(imgs)
+            # self.Win = self.Win.to(torch.uint8)
+            # imgs_Win = torch.matmul(imgs, self.Win)
+            # print(imgs_Win == imgs)  # True
+            # print(imgs_Win.size())
+            # self.imshow(imgs_Win)  # 乘以Win之后依然能显示
+            # 上面验证reshape(-1, 3, 32, 32)还是能显示图片
             u = torch.from_numpy(self.data[batch_idx]).to(torch.float32)
+            self.x = torch.matmul(u, self.Win)  # 不使用激活函数
+            # self.x = torch.tanh(torch.matmul(u, self.Win))  # 这里的激活函数要不要？
+            # print(u.size())  # torch.Size([4, 3072, 1])
             # self.x = (1 - self.a) * self.x + self.a * torch.tanh(torch.matmul(u, self.Win) + torch.matmul(self.x, self.W))
-            self.x = torch.tanh(torch.matmul(u, self.Win))
+            # print(u, self.x)
 
             # print(self.x.size())  # torch.Size([32, 3072, 6])
             # print(self.x.size(), self.x.dtype)  # torch.Size([5, 3072, 1]) torch.float32
@@ -610,6 +623,14 @@ class RcProject:
             torch.backends.cudnn.benchmark = True  # False  # GPU、网络结构固定，可设置为True
             torch.backends.cudnn.deterministic = True  # 固定网络结构
 
+    def imshow(self, imgs):  # self.data[batch_idx]
+        imgs = imgs.reshape(-1, 3, 32, 32)
+        grid_imgs = torchvision.utils.make_grid(imgs)
+        npimg = grid_imgs.numpy()
+        # print(npimg.shape)  # (3, 36, 138)
+        plt.imshow(np.transpose(npimg, (1, 2, 0)))  # HWC
+        plt.show()
+
 
 if __name__ == "__main__":
 
@@ -623,9 +644,9 @@ if __name__ == "__main__":
         for idx, (datas, labels) in enumerate(train_loader):
             if idx == 0:
                 print(datas.size(), datas[0].dtype)  # torch.Size([5, 3, 32, 32]) torch.float32
-                datas_numpy = datas.numpy()
-                img = np.int8(datas_numpy)
-                print(img, img.dtype)
+                # datas_numpy = datas.numpy()
+                # img = np.int8(datas_numpy)
+                # print(img, img.dtype)
                 print(labels)
             # print(len(labels))
             # if idx > 5:
