@@ -23,12 +23,11 @@ import numpy as np
 
 import torch
 from PIL.Image import Image
-from torch.optim.lr_scheduler import LRScheduler
+from torch.optim.lr_scheduler import _LRScheduler
 import torchvision
 from torchvision import datasets
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader, RandomSampler, BatchSampler, SequentialSampler
-
 
 from torch.utils.data import dataset
 
@@ -55,7 +54,7 @@ class TemplateLoadData(dataset.Dataset):  # 注意父类的名称，不能写dat
     def get_img(self, txt_path):
         with open(txt_path, 'r', encoding='utf-8') as f:
             imgs_info = f.readlines()  # 这里是读取所有文件信息，包括文件路径和标签
-            imgs_info = list(map(lambda x:x.strip().split('\t'), imgs_info))
+            imgs_info = list(map(lambda x: x.strip().split('\t'), imgs_info))
             return imgs_info
 
     def __getitem__(self, index):
@@ -88,7 +87,6 @@ class LoadImgXOpticalData(dataset.Dataset):  # 注意父类的名称，不能写
         return dummy_dataset['img'], dummy_dataset['XOptical']  # 这是一个字典
 
     def __getitem__(self, index):
-
         img, label = self.img_info[0][index], self.img_info[1][index]
 
         return img, label
@@ -252,6 +250,15 @@ def get_network(network):
     elif network == 'resnet18':
         from models.resnet import resnet18
         net = resnet18()
+    elif network == 'resnet10':
+        from models.resnet import resnet10
+        net = resnet10()
+    elif network == 'miniresnet_4':
+        from models.resnet import miniresnet_4
+        net = miniresnet_4()
+    elif network == 'mini_resnet10':
+        from models.resnet import mini_resnet10
+        net = mini_resnet10()
 
     else:
         print('the network name you have entered is not supported yet')
@@ -273,7 +280,7 @@ def get_training_dataloader(mean, std, batch_size=16, num_workers=2, shuffle=Tru
     """
 
     transform_train = transforms.Compose([
-        #transforms.ToPILImage(),
+        # transforms.ToPILImage(),
         transforms.RandomCrop(32, padding=4),
         transforms.RandomHorizontalFlip(),
         transforms.RandomRotation(15),
@@ -366,14 +373,14 @@ def get_mean_std(data):
     return mean, std
 
 
-class WarmUpLR(LRScheduler):
+class WarmUpLR(_LRScheduler):
     """warmup_training learning rate scheduler
     Args:
         optimizer: optimzier(e.g. SGD)
         total_iters: totoal_iters of warmup phase
     """
-    def __init__(self, optimizer, total_iters, last_epoch=-1):
 
+    def __init__(self, optimizer, total_iters, last_epoch=-1):
         self.total_iters = total_iters
         super().__init__(optimizer, last_epoch)
 
@@ -424,7 +431,6 @@ class LoadRcData(dataset.Dataset):  # 注意父类的名称，不能写dataset
         return data['images'], data['labels']
 
     def __getitem__(self, index):
-
         img, label = self.img_info[0][index], self.img_info[1][index]
         print(img.shape)
         print(label)
@@ -533,35 +539,35 @@ def same_seeds(seed):
     if torch.cuda.is_available():  # 固定随机种子（GPU)
         torch.cuda.manual_seed(seed)  # 为当前GPU设置
         # torch.cuda.manual_seed_all(seed)  # 为所有GPU设置
-        torch.backends.cudnn.benchmark = True # False  # GPU、网络结构固定，可设置为True
+        torch.backends.cudnn.benchmark = True  # False  # GPU、网络结构固定，可设置为True
         torch.backends.cudnn.deterministic = True  # 固定网络结构
 
 
 class RcProject:
-    def __init__(self, userDataset=None, batch_size=8, train=True):
+    def __init__(self, userDataset=None, batch_size=8, train=True, trans=False):
 
         self.set_seed(42)
         self.train = train
+        self.trans = trans
 
         # 定义储层的相关参数
-        self.resSize = 1  # 6
+        self.resSize = 3  # 6
         self.batch_size = batch_size
 
         self.dataset = userDataset
         # np.array(50000, 32, 32, 3) (50000,)(list)
         self.origin_data = self.dataset.data
         self.inSize = self.origin_data.shape[1] * self.origin_data.shape[2] * self.origin_data.shape[3]
-        # (N,H,W,C)--(N,C,H,W)--(50000, 3072, 1)
-        self.data = self.origin_data.transpose((0, 3, 1, 2)).reshape(-1, self.inSize, 1)
         self.labels = self.dataset.targets
-        self.dataLen = len(self.data)
+        self.dataLen = len(self.origin_data)
 
         self.a = 1  # 0.3
         self.rho = 0.9  # spectral radius
         # self.Win = torch.randn(1, self.resSize, requires_grad=False)  # requires_grad=False
         # self.W = torch.randn(self.resSize, self.resSize, requires_grad=False)
 
-        self.Win = torch.ones(1, self.resSize, requires_grad=False)  # requires_grad=False
+        # self.Win = torch.ones(1, self.resSize, requires_grad=False)  # requires_grad=False
+        self.Win = torch.randn(1, self.resSize, requires_grad=False)  # requires_grad=False
         # self.W = torch.ones(self.resSize, self.resSize, requires_grad=False)
 
         # self.X = torch.zeros((self.dataLen, self.inSize, self.resSize))
@@ -574,15 +580,35 @@ class RcProject:
         # self.rhoW = max(abs(np.linalg.eig(self.W.numpy())[0]))
         # print("After normalized, spectral radius: rhoW = ", self.rhoW)
 
-        print("Win :", self.Win, self.Win.dtype)  # Win : tensor([[1.]]) torch.float32
+        # print("Win :", self.Win, self.Win.dtype)  # Win : tensor([[1.]]) torch.float32
 
-        # self.batch_idxes = BatchSampler(RandomSampler(self.data, replacement=False),
-        #                                 batch_size=self.batch_size,
-        #                                 drop_last=True)
+        self.train_mean, self.train_std = (0.49144, 0.48222, 0.44652), (0.24702, 0.24349, 0.26166)
+        self.test_mean, self.test_std = (0.49421, 0.48513, 0.45041), (0.24665, 0.24289, 0.26159)
+        self.train_trans = transforms.Compose([
+            transforms.ToTensor(),
+            # transforms.Normalize(self.train_mean, self.train_std)
+        ])
 
-        self.batch_idxes = BatchSampler(SequentialSampler(self.data),
+        self.test_trans = transforms.Compose([
+            transforms.ToTensor(),
+            # transforms.Normalize(self.test_mean, self.test_std)
+        ])
+
+        if self.trans:
+            self.data = self.transforms()
+            # print(self.data.shape)  # torch.Size([50000, 3, 32, 32])
+            self.data = self.data.reshape(-1, self.inSize, 1)
+            # print(self.data.shape)  # torch.Size([50000, 3072, 1])
+        else:
+            # (N,H,W,C)--(N,C,H,W)--(50000, 3072, 1)
+            self.data = self.origin_data.transpose((0, 3, 1, 2)).reshape(-1, self.inSize, 1) / 255.0
+
+        self.batch_idxes = BatchSampler(RandomSampler(self.data, replacement=False),
                                         batch_size=self.batch_size,
-                                        drop_last=True)  # Samples elements sequentially, always in the same order.
+                                        drop_last=True)
+        # self.batch_idxes = BatchSampler(SequentialSampler(trans_data),
+        #                                 batch_size=self.batch_size,
+        #                                 drop_last=True)  # always in the same order.
 
     def rc_reprocess(self):
         """
@@ -590,14 +616,29 @@ class RcProject:
         """
 
         for batch_idx in self.batch_idxes:
-            u = torch.from_numpy(self.data[batch_idx]).to(torch.float32)
+            # imgs = torch.from_numpy(self.data[batch_idx]).to(torch.uint8)  # uint8才能显示
+            # self.imshow(imgs)
+            # self.Win = self.Win.to(torch.uint8)
+            # imgs_Win = torch.matmul(imgs, self.Win)
+            # print(imgs_Win == imgs)  # True
+            # print(imgs_Win.size())
+            # self.imshow(imgs_Win)  # 乘以Win之后依然能显示
+            # 上面验证reshape(-1, 3, 32, 32)还是能显示图片
+            if self.trans:
+                u = self.data[batch_idx]
+            else:
+                u = torch.from_numpy(self.data[batch_idx]).to(torch.float32)
+
+            self.x = torch.matmul(u, self.Win)
+            rc_output = self.x.reshape(-1, 3 * self.resSize, 32, 32)
+            # self.x = torch.tanh(torch.matmul(u, self.Win))  # 使用激活函数
+            # print(u.size())  # torch.Size([4, 3072, 1])
             # self.x = (1 - self.a) * self.x + self.a * torch.tanh(torch.matmul(u, self.Win) + torch.matmul(self.x, self.W))
-            self.x = torch.tanh(torch.matmul(u, self.Win))
+            # print(u, self.x)
 
             # print(self.x.size())  # torch.Size([32, 3072, 6])
             # print(self.x.size(), self.x.dtype)  # torch.Size([5, 3072, 1]) torch.float32
 
-            rc_output = self.x.reshape(-1, 3 * self.resSize, 32, 32)
             rc_labels = torch.tensor([self.labels[i] for i in batch_idx], dtype=torch.int64)
 
             yield rc_output, rc_labels
@@ -609,6 +650,30 @@ class RcProject:
             torch.cuda.manual_seed(seed)  # 为当前GPU设置
             torch.backends.cudnn.benchmark = True  # False  # GPU、网络结构固定，可设置为True
             torch.backends.cudnn.deterministic = True  # 固定网络结构
+
+    def imshow(self, imgs):  # self.data[batch_idx]
+        imgs = imgs.reshape(-1, 3, 32, 32)
+        grid_imgs = torchvision.utils.make_grid(imgs)
+        npimg = grid_imgs.numpy()
+        # print(npimg.shape)  # (3, 36, 138)
+        plt.imshow(np.transpose(npimg, (1, 2, 0)))  # HWC
+        plt.show()
+
+    def transforms(self):
+        trans_data = []
+        for idx in range(len(self.origin_data)):
+            # print(self.origin_data[idx].shape)  # (32, 32, 3)
+            if self.train:
+                x = self.train_trans(self.origin_data[idx]).unsqueeze(0)
+            else:
+                x = self.test_trans(self.origin_data[idx]).unsqueeze(0)
+            trans_data.append(x)
+            # print(x.shape)  # torch.Size([3, 32, 32])  torch.Size([1, 3, 32, 32])
+
+        trans_data = torch.vstack(trans_data)
+
+        return trans_data
+
 
 
 if __name__ == "__main__":
@@ -623,16 +688,13 @@ if __name__ == "__main__":
         for idx, (datas, labels) in enumerate(train_loader):
             if idx == 0:
                 print(datas.size(), datas[0].dtype)  # torch.Size([5, 3, 32, 32]) torch.float32
-                datas_numpy = datas.numpy()
-                img = np.int8(datas_numpy)
-                print(img, img.dtype)
+                # datas_numpy = datas.numpy()
+                # img = np.int8(datas_numpy)
+                # print(img, img.dtype)
                 print(labels)
             # print(len(labels))
             # if idx > 5:
             #     break
-
-
-
 
     # # all save
     # from torchvision import datasets
@@ -682,7 +744,6 @@ if __name__ == "__main__":
     #     print(label)
     #     print(label.shape)
 
-
     # # single save
     # from torchvision import datasets
     # from torch.utils.data import dataloader
@@ -714,7 +775,6 @@ if __name__ == "__main__":
     #     print(imgs.shape)  # torch.Size([2, 18, 32, 32])
     #     print(labels)  # torch.Size([2, 18, 32, 32])
     #     print(len(labels))
-
 
     #
     # from torch.utils.data import dataloader
@@ -786,7 +846,6 @@ if __name__ == "__main__":
     # # (0.07591832, 0.11596749, 0.1097227)(1.1538872, 1.1155221, 1.1049513)
     # # (0.060680583, 0.11857232, 0.11297002)(1.1560373, 1.1133307, 1.1015073)
 
-
     #     self.train_mean = (0.49144, 0.48222, 0.44652)
     #     self.train_std = (0.24702, 0.24349, 0.26166)
     #     self.train_transforms = transforms.Compose([
@@ -804,6 +863,6 @@ if __name__ == "__main__":
     #     else:
     #         pass
     #
-    
-    
-    
+
+
+
