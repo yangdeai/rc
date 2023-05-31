@@ -34,7 +34,7 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
         train_total_loss = 0
         train_total_num = 0
         train_total_correct = 0
-        if epoch_count / 50 == 1 and epoch > WARM_EPOCH:
+        if epoch_count / 10 == 1:
             epoch_count = 0
             lr = lr * 0.5
             optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=1e-4)
@@ -45,6 +45,7 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
 
         # next epoch dataloader
         train_loader = train_rc.rc_reprocess()
+        writer.add_histogram('train_rc.Win', train_rc.Win, epoch)
         with torch.set_grad_enabled(True):
             model.train()
             for iter, (images, labels) in enumerate(train_loader):
@@ -82,6 +83,7 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
 
         # next epoch dataloader
         test_loader = test_rc.rc_reprocess()
+        writer.add_histogram('test_rc.Win', test_rc.Win, epoch)
         with torch.set_grad_enabled(False):
             model.eval()
             val_total_loss = 0
@@ -117,6 +119,9 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
             logging.info('valid Loss: {:.4f}[{}], valid Acc: {:.4f}'.format(val_loss, epoch_count, val_acc))
 
         # scheduler_optimizer.step()
+        logging.info("\n\n")
+        logging.info(f"train_rc.Win: {train_rc.Win}, test_rc.Win: {test_rc.Win}, epoch{epoch}/{MAX_EPOCH}")
+        logging.info("\n\n")
 
         logging.info("\n")
         logging.info('current lr: {:.7f}'.format(optimizer.param_groups[0]['lr']))
@@ -150,8 +155,8 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='train resnet with cifar10 dataset.')
     parser.add_argument('-net', '--network', type=str, default='resnet101', help='network: resnet101 or rc_resnet_101')
-    parser.add_argument('-exp_num', '--exp_num', type=str, default='3', help='the exp num')
-    parser.add_argument('-lr', '--learning_rate', type=float, default=1e-2, help='initial learning rate')
+    parser.add_argument('-exp_num', '--exp_num', type=str, default='5', help='the exp num')
+    parser.add_argument('-lr', '--learning_rate', type=float, default=1e-1, help='initial learning rate')
     parser.add_argument('-bs', '--batch_size', type=int, default=32, help='batch size for dataloader')
     parser.add_argument('-me', '--max_epoch', type=int, default=200, help='total epoch to train')
     parser.add_argument('-we', '--warm_epoch', type=int, default=2, help='warm up training phase')
@@ -191,27 +196,18 @@ if __name__ == '__main__':
     WARM_EPOCH = args.warm_epoch
     BATCH_SIZE = args.batch_size
 
-    # # prepared data transforms
-    # train_mean, train_std = (0.49144, 0.48222, 0.44652), (0.24702, 0.24349, 0.26166)
-    # test_mean, test_std = (0.49421, 0.48513, 0.45041), (0.24665, 0.24289, 0.26159)
-    # train_data_transform = transforms.Compose([
-    #     transforms.ToTensor(),
-    #     transforms.RandomCrop(32, padding=4),
-    #     transforms.RandomHorizontalFlip(p=0.5),
-    #     transforms.Normalize(train_mean, train_std)
-    # ])
-    #
-    # test_data_transform = transforms.Compose([
-    #     transforms.ToTensor(),
-    #     transforms.Normalize(test_mean, test_std)
-    # ])
-    # dataset
+    # prepared dataset
     train_dataset = datasets.CIFAR10('cifar10', train=True, download=True)
     test_dataset = datasets.CIFAR10('cifar10', train=False, download=True)
 
     # rc_projection and dataloader
     train_rc = RcProject(train_dataset, batch_size=BATCH_SIZE, train=True)
     test_rc = RcProject(test_dataset, batch_size=BATCH_SIZE, train=False)
+
+    # train/test Win
+    logging.info("\n\n")
+    logging.info(f"train_rc.Win: {train_rc.Win}, test_rc.Win: {test_rc.Win}")
+    logging.info("\n\n")
 
     # model
     model = get_network(args.network)
