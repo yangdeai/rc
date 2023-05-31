@@ -544,7 +544,7 @@ def same_seeds(seed):
 
 
 class RcProject:
-    def __init__(self, userDataset=None, batch_size=8, train=True, trans=False):
+    def __init__(self, userDataset=None, batch_size=8, train=True, trans=True):
 
         self.set_seed(42)
         self.train = train
@@ -586,12 +586,14 @@ class RcProject:
         self.test_mean, self.test_std = (0.49421, 0.48513, 0.45041), (0.24665, 0.24289, 0.26159)
         self.train_trans = transforms.Compose([
             transforms.ToTensor(),
-            # transforms.Normalize(self.train_mean, self.train_std)
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.Normalize(self.train_mean, self.train_std)
         ])
 
         self.test_trans = transforms.Compose([
             transforms.ToTensor(),
-            # transforms.Normalize(self.test_mean, self.test_std)
+            transforms.Normalize(self.test_mean, self.test_std)
         ])
 
         if self.trans:
@@ -664,16 +666,15 @@ class RcProject:
         for idx in range(len(self.origin_data)):
             # print(self.origin_data[idx].shape)  # (32, 32, 3)
             if self.train:
-                x = self.train_trans(self.origin_data[idx]).unsqueeze(0)
+                x = self.train_trans(self.origin_data[idx])
             else:
-                x = self.test_trans(self.origin_data[idx]).unsqueeze(0)
+                x = self.test_trans(self.origin_data[idx])
             trans_data.append(x)
-            # print(x.shape)  # torch.Size([3, 32, 32])  torch.Size([1, 3, 32, 32])
+            # print(x.shape)  # torch.Size([3, 32, 32])
 
-        trans_data = torch.vstack(trans_data)
+        trans_data = torch.stack(trans_data, dim=0)
 
         return trans_data
-
 
 
 if __name__ == "__main__":
@@ -696,6 +697,20 @@ if __name__ == "__main__":
             # if idx > 5:
             #     break
 
+
+        # self.normalized_data = self.origin_data / 255.0
+        #
+        # if self.train:
+        #     self.standard_data_r = (self.normalized_data[:, :, :, 0] - self.train_mean[0]) / self.train_std[0]
+        #     self.standard_data_g = (self.normalized_data[:, :, :, 1] - self.train_mean[1]) / self.train_std[1]
+        #     self.standard_data_b = self.normalized_data[:, :, :, 2] - self.train_mean[2] / self.train_std[2]
+        # else:
+        #     self.standard_data_r = (self.normalized_data[:, :, :, 0] - self.test_mean[0]) / self.test_std[0]
+        #     self.standard_data_g = (self.normalized_data[:, :, :, 1] - self.test_mean[1]) / self.test_std[1]
+        #     self.standard_data_b = (self.normalized_data[:, :, :, 2] - self.test_mean[2]) / self.test_std[2]
+        #
+        # self.origin_data = np.stack([self.standard_data_r, self.standard_data_g, self.standard_data_b], axis=-1)
+        # # print(self.origin_data.shape) # (50000, 32, 32, 3)
     # # all save
     # from torchvision import datasets
     # from torch.utils.data import dataloader
