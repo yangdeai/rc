@@ -28,17 +28,11 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
     val_last_acc = 0.0
     val_last_loss = np.Inf
     epoch_count = 0
-    # scheduler_optimizer = torch.optim.lr_scheduler.MultiStepLR(optimizer, [50, 80, 120], gamma=0.5,
-    #                                                            last_epoch=-1)
+
     for epoch in range(MAX_EPOCH):
         train_total_loss = 0
         train_total_num = 0
         train_total_correct = 0
-        if epoch_count / 1 == 1:
-            epoch_count = 0
-            lr = lr * 0.5
-            # optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=1e-4)
-            optimizer.lr = lr
 
         logging.info('Epoch {}/{}'.format(epoch, MAX_EPOCH))
         logging.info('-' * 10)
@@ -68,9 +62,6 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
 
                 train_total_num += labels.shape[0]
                 train_total_loss += loss.item()
-
-                if iter >= 1:
-                    break
 
             train_loss = train_total_loss / train_total_num
             train_acc = train_total_correct / train_total_num
@@ -103,9 +94,6 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
                 val_total_loss += loss.item()
                 val_total_num += labels.shape[0]
 
-                if iter >= 1:
-                    break
-
             val_loss = val_total_loss / val_total_num
             val_acc = val_total_correct / val_total_num
 
@@ -125,7 +113,7 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
             logging.info('total time {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
             logging.info('valid Loss: {:.4f}[{}], valid Acc: {:.4f}'.format(val_loss, epoch_count, val_acc))
 
-        # scheduler_optimizer.step()
+        scheduler_optimizer.step()
         logging.info("\n\n")
         logging.info(f"train_rc.Win: {train_rc.Win}, test_rc.Win: {test_rc.Win}, epoch{epoch}/{MAX_EPOCH}")
         logging.info("\n\n")
@@ -162,33 +150,12 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='train resnet with cifar10 dataset.')
     parser.add_argument('-net', '--network', type=str, default='resnet10', help='network: resnet101 or rc_resnet_101')
-    parser.add_argument('-exp_num', '--exp_num', type=str, default='1_4_dropout', help='the exp num')
+    parser.add_argument('-exp_num', '--exp_num', type=str, default='0_augment2', help='the exp num')
     parser.add_argument('-lr', '--learning_rate', type=float, default=1e-1, help='initial learning rate')
-    parser.add_argument('-bs', '--batch_size', type=int, default=64, help='batch size for dataloader')
-    parser.add_argument('-me', '--max_epoch', type=int, default=200, help='total epoch to train')
+    parser.add_argument('-bs', '--batch_size', type=int, default=128, help='batch size for dataloader')
+    parser.add_argument('-me', '--max_epoch', type=int, default=100, help='total epoch to train')
     parser.add_argument('-we', '--warm_epoch', type=int, default=2, help='warm up training phase')
     args = parser.parse_args()
-
-    # file/dir
-    exp_name = f'rc_{args.network}_exp{args.exp_num}'
-    weight_dir = f'/tf_logs/weights/{exp_name}'
-    best_weight_pth = weight_dir + f'/max_epoch{args.max_epoch}'
-    log_dir = f"/tf_logs/runs/train/{exp_name}"
-
-    if not os.path.exists(weight_dir):
-        os.makedirs(weight_dir)
-
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
-
-    # log
-    logging.basicConfig(filename=log_dir + '.txt',
-                        filemode='a',
-                        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s-%(funcName)s',
-                        level=logging.INFO)
-
-    # writer = SummaryWriter(log_dir)
-    writer = SummaryWriter(log_dir)
 
     # seed
     torch.manual_seed(42)
@@ -208,21 +175,47 @@ if __name__ == '__main__':
     test_dataset = datasets.CIFAR10('cifar10', train=False, download=True)
 
     # rc_projection and dataloader
+    pre_st = time.time()
     train_rc = RcProject(train_dataset, batch_size=BATCH_SIZE, train=True)
-    test_rc = RcProject(test_dataset, batch_size=BATCH_SIZE, train=False)
+    train_t = time.time()
+    print(f"the time spend on train data: {train_t - pre_st}")
 
-    # train/test Win
-    logging.info("\n\n")
-    logging.info(f"train_rc.Win: {train_rc.Win}, test_rc.Win: {test_rc.Win}")
-    logging.info("\n\n")
+    test_rc = RcProject(test_dataset, batch_size=BATCH_SIZE, train=False)
+    print(f"the time spend on test data: {time.time() - train_t}")
 
     # model
     model = get_network(args.network)
     # model's in_channel equals rc's out_channel
     rc_out_channel = 3 * train_rc.resSize
-    model.conv1 = torch.nn.Conv2d(rc_out_channel, 64, 3, stride=1, padding=1, bias=False)  # 首层改成3x3卷积核
-    # model.maxpool = torch.nn.MaxPool2d(1, 1, 0)  # 通过1x1的池化核让池化层失效
-    print(model)
+    feature_map = 64
+    model.conv1 = torch.nn.Conv2d(rc_out_channel, feature_map, 3, stride=1, padding=1, bias=False)  # 首层改成3x3卷积核
+    model.maxpool = torch.nn.MaxPool2d(1, 1, 0)  # 通过1x1的池化核让池化层失效
+
+    # file/dir
+    exp_name = f'rc_{args.network}_exp{args.exp_num}_rSize{train_rc.resSize}_fp{feature_map}'
+    weight_dir = f'/tf_logs/weights/{exp_name}'
+    best_weight_pth = weight_dir + f'/max_epoch{args.max_epoch}'
+    log_dir = f"/tf_logs/runs/train/{exp_name}"
+
+    if not os.path.exists(weight_dir):
+        os.makedirs(weight_dir)
+
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+
+    # log
+    logging.basicConfig(filename=log_dir + '.txt',
+                        filemode='a',
+                        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s-%(funcName)s',
+                        level=logging.INFO)
+
+    writer = SummaryWriter(log_dir)
+    
+    # train/test Win
+    logging.info("\n\n")
+    logging.info(f"train_rc.Win: {train_rc.Win}, test_rc.Win: {test_rc.Win}, resSize: {train_rc.resSize}")
+    logging.info("\n\n")
+    
     # check model
     logging.info("============== layers needed to train ==============")
     for name, params in model.named_parameters():
@@ -233,6 +226,8 @@ if __name__ == '__main__':
     loss_fn = torch.nn.CrossEntropyLoss()
     # optimizer
     optimizer = torch.optim.SGD(model.parameters(), lr=LR, momentum=0.9, weight_decay=1e-4)
+    scheduler_optimizer = torch.optim.lr_scheduler.MultiStepLR(optimizer, [30, 50, 60, 70, 80], gamma=0.1,
+                                                               last_epoch=-1)
 
     logging.info("===   !!!START TRAINING!!!   ===")
     # logging.info('train_data_num: {}, validation_data_num: {}'.format(len(train_dataset), len(val_cifar_dataset)))

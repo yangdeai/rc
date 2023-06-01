@@ -588,6 +588,13 @@ class RcProject:
             transforms.ToTensor(),
             transforms.RandomCrop(32, padding=4),
             transforms.RandomHorizontalFlip(p=0.5),
+            # transforms.RandomRotation(45),  # 随机旋转，-45到45度之间随机选
+            # transforms.RandomCrop(32, padding=4),  # 先四周填充0，在吧图像随机裁剪成32*32
+            # transforms.RandomHorizontalFlip(p=0.5),  # 随机水平翻转 选择一个概率概率
+            # transforms.RandomVerticalFlip(p=0.5),  # 随机垂直翻转
+            # # transforms.ColorJitter(brightness=0.2, contrast=0.1, saturation=0.1, hue=0.1),
+            # # # 参数1为亮度，参数2为对比度，参数3为饱和度，参数4为色相 全部是随机变化
+            # # transforms.RandomGrayscale(p=0.025),  # 概率转换成灰度率，3通道就是R=G=B
             transforms.Normalize(self.train_mean, self.train_std)
         ])
 
@@ -677,11 +684,117 @@ class RcProject:
         return trans_data
 
 
+class RcProject2:
+    def __init__(self, userDataset=None, batch_size=8, train=True, trans=True):
+
+        self.set_seed(42)
+        self.train = train
+        self.trans = trans
+
+        # 定义储层的相关参数
+        self.resSize = 3  # 6
+        self.batch_size = batch_size
+
+        self.dataset = userDataset
+        # np.array(50000, 32, 32, 3) (50000,)(list)
+        self.origin_data = self.dataset.data
+        self.inSize = self.origin_data.shape[1] * self.origin_data.shape[2] * self.origin_data.shape[3]
+        self.labels = self.dataset.targets
+        self.dataLen = len(self.origin_data)
+
+        self.Win = torch.randn(self.resSize, 1, requires_grad=False)  # requires_grad=False
+
+        self.train_mean, self.train_std = (0.49144, 0.48222, 0.44652), (0.24702, 0.24349, 0.26166)
+        self.test_mean, self.test_std = (0.49421, 0.48513, 0.45041), (0.24665, 0.24289, 0.26159)
+        self.train_trans = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.Normalize(self.train_mean, self.train_std)
+        ])
+
+        self.test_trans = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(self.test_mean, self.test_std)
+        ])
+
+        if self.trans:
+            self.data = self.transforms()
+            # print(self.data.shape)  # torch.Size([50000, 3, 32, 32])
+            self.data = self.data.transpose(1, 2).transpose(2, 3)
+            print(self.data.shape)  # torch.Size([50000, 3072, 1])   torch.Size([50000, 32, 32, 3])
+        else:
+            # (N,H,W,C)--(N,C,H,W)--(50000, 3072, 1)
+            self.data = self.origin_data.transpose((0, 3, 1, 2)).reshape(-1, self.inSize, 1) / 255.0
+
+        self.batch_idxes = BatchSampler(RandomSampler(self.data, replacement=False),
+                                        batch_size=self.batch_size,
+                                        drop_last=True)
+        # self.batch_idxes = BatchSampler(SequentialSampler(trans_data),
+        #                                 batch_size=self.batch_size,
+        #                                 drop_last=True)  # always in the same order.
+
+    def rc_reprocess(self):
+        """
+            RC preprocessing.
+        """
+
+        for batch_idx in self.batch_idxes:
+            # imgs = torch.from_numpy(self.data[batch_idx]).to(torch.uint8)  # uint8才能显示
+            # self.imshow(imgs)
+            # self.Win = self.Win.to(torch.uint8)
+            # imgs_Win = torch.matmul(imgs, self.Win)
+            # print(imgs_Win == imgs)  # True
+            # print(imgs_Win.size())
+            # self.imshow(imgs_Win)  # 乘以Win之后依然能显示
+            # 上面验证reshape(-1, 3, 32, 32)还是能显示图片
+            if self.trans:
+                u = self.data[batch_idx]
+            else:
+                u = torch.from_numpy(self.data[batch_idx]).to(torch.float32)
+
+            self.x = torch.matmul(u, self.Win)  # (4, 32, 32, 1)
+            rc_output = self.x.transpose(3, 2).transpose(2, 1)  # (4, 1, 32, 32)
+            rc_labels = torch.tensor([self.labels[i] for i in batch_idx], dtype=torch.int64)
+
+            yield rc_output, rc_labels
+
+    def set_seed(self, seed):
+        torch.manual_seed(seed)  # 固定随机种子（CPU）
+        np.random.seed(seed)  # 保证后续使用random函数时，产生固定的随机数
+        if torch.cuda.is_available():  # 固定随机种子（GPU)
+            torch.cuda.manual_seed(seed)  # 为当前GPU设置
+            torch.backends.cudnn.benchmark = True  # False  # GPU、网络结构固定，可设置为True
+            torch.backends.cudnn.deterministic = True  # 固定网络结构
+
+    def imshow(self, imgs):  # self.data[batch_idx]
+        imgs = imgs.reshape(-1, 3, 32, 32)
+        grid_imgs = torchvision.utils.make_grid(imgs)
+        npimg = grid_imgs.numpy()
+        # print(npimg.shape)  # (3, 36, 138)
+        plt.imshow(np.transpose(npimg, (1, 2, 0)))  # HWC
+        plt.show()
+
+    def transforms(self):
+        trans_data = []
+        for idx in range(len(self.origin_data)):
+            # print(self.origin_data[idx].shape)  # (32, 32, 3)
+            if self.train:
+                x = self.train_trans(self.origin_data[idx])
+            else:
+                x = self.test_trans(self.origin_data[idx])
+            trans_data.append(x)
+            # print(x.shape)  # torch.Size([3, 32, 32])
+
+        trans_data = torch.stack(trans_data, dim=0)
+
+        return trans_data
+
 if __name__ == "__main__":
 
     batch_size = 4
     train_dataset = datasets.CIFAR10('cifar10', train=True, download=False)
-    rcPro = RcProject(train_dataset, batch_size=batch_size, train=True)
+    rcPro = RcProject2(train_dataset, batch_size=batch_size, train=True)
     # print(len(list(train_loader)))  # 390
     for i in range(2):  # 不同的epoch，采样不同
         print("epoch {}".format(i))

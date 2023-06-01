@@ -12,6 +12,7 @@
 
 if __name__ == "__main__":
     import numpy as np
+    import torch
     a = np.arange(1, 13, step=1)
     b = np.arange(10, 130, step=10)
     c = np.arange(100, 1300, step=100)
@@ -19,6 +20,12 @@ if __name__ == "__main__":
     ap = a.reshape(3, 2, 2)
     bp = b.reshape(3, 2, 2)
     cp = c.reshape(3, 2, 2)
+
+    et = torch.from_numpy(ap).transpose(0, 1).transpose(1, 2)
+    print(et)
+
+    ettt = et.transpose(2, 1).transpose(1, 0)
+    print(ettt)
 
     print(ap)
     print(bp)
