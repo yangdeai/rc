@@ -97,7 +97,7 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
             val_loss = val_total_loss / val_total_num
             val_acc = val_total_correct / val_total_num
 
-            if val_loss < val_last_loss:
+            if val_loss < val_last_loss and abs(val_loss - val_last_loss) >= 0.001:
                 val_last_loss = val_loss
                 val_last_acc = val_acc
                 epoch_count = 0
@@ -147,37 +147,16 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='train resnet with cifar10 dataset.')
     parser.add_argument('-net', '--network', type=str, default='resnet18', help='network: resnet101 or rc_resnet_101')
-    parser.add_argument('-exp_num', '--exp_num', type=str, default='2', help='the exp num')
+    parser.add_argument('-exp_num', '--exp_num', type=str, default='3', help='the exp num')
     parser.add_argument('-lr', '--learning_rate', type=float, default=1e-1, help='initial learning rate')
     parser.add_argument('-bs', '--batch_size', type=int, default=128, help='batch size for dataloader')
     parser.add_argument('-me', '--max_epoch', type=int, default=100, help='total epoch to train')
     parser.add_argument('-we', '--warm_epoch', type=int, default=2, help='warm up training phase')
     args = parser.parse_args()
 
-    # file/dir
-    exp_name = f'{args.network}_exp{args.exp_num}'
-    weight_dir = f'/tf_logs/weights/{exp_name}'
-    best_weight_pth = weight_dir + f'/max_epoch{args.max_epoch}'
-    log_dir = f"/tf_logs/runs/train/{exp_name}"
-
-    if not os.path.exists(weight_dir):
-        os.makedirs(weight_dir)
-
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
-
-    # log
-    logging.basicConfig(filename=log_dir + '.txt',
-                        filemode='a',
-                        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s-%(funcName)s',
-                        level=logging.INFO)
-
-    # writer = SummaryWriter(log_dir)
-    writer = SummaryWriter(log_dir)
-
     # seed
-    torch.manual_seed(42)
-    np.random.seed(42)
+    torch.manual_seed(1234)
+    np.random.seed(1234)
 
     # device
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -221,8 +200,30 @@ if __name__ == '__main__':
 
     # model
     model = get_network(args.network)
-    model.conv1 = torch.nn.Conv2d(3, 64, 3, stride=1, padding=1, bias=False)  # 首层改成3x3卷积核
+    feature_map = 64
+    model.conv1 = torch.nn.Conv2d(3, feature_map, 3, stride=1, padding=1, bias=False)  # 首层改成3x3卷积核
     model.maxpool = torch.nn.MaxPool2d(1, 1, 0)  # 通过1x1的池化核让池化层失效
+    
+    # file/dir
+    exp_name = f'{args.network}_exp{args.exp_num}_fp{feature_map}_lr{LR}'
+    weight_dir = f'/tf_logs/weights/{exp_name}'
+    best_weight_pth = weight_dir + f'/max_epoch{args.max_epoch}'
+    log_dir = f"/tf_logs/runs/train/{exp_name}"
+
+    if not os.path.exists(weight_dir):
+        os.makedirs(weight_dir)
+
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+
+    # log
+    logging.basicConfig(filename=log_dir + '.txt',
+                        filemode='a',
+                        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s-%(funcName)s',
+                        level=logging.INFO)
+
+    # writer = SummaryWriter(log_dir)
+    writer = SummaryWriter(log_dir)
 
     # check model
     logging.info("============== layers needed to train ==============")

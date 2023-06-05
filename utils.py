@@ -796,12 +796,12 @@ class RcProject2:
 class RcProjectPre:
     def __init__(self, userDataset=None, batch_size=8, train=True, trans=True):
 
-        self.set_seed(42)
+        self.set_seed(1234)
         self.train = train
         self.trans = trans
 
         # 定义储层的相关参数
-        self.resSize = 3  # 6
+        self.resSize = 6  # 6
         self.batch_size = batch_size
 
         self.dataset = userDataset
@@ -809,62 +809,55 @@ class RcProjectPre:
         self.inSize = self.origin_data.shape[1] * self.origin_data.shape[2] * self.origin_data.shape[3]
         self.labels = self.dataset.targets  # (50000,)(list)
 
-        self.x = torch.zeros((self.batch_size, self.inSize, self.resSize))
-        self.Win = torch.randn(1, self.resSize, requires_grad=False)  # - 0.5  # requires_grad=False
+        self.x = np.zeros((self.batch_size, self.inSize, self.resSize))
+        self.Win = np.random.randn(1, self.resSize)  # - 0.5
 
-        # self.train_mean, self.train_std = (0.49144, 0.48222, 0.44652), (0.24702, 0.24349, 0.26166)
-        # self.test_mean, self.test_std = (0.49421, 0.48513, 0.45041), (0.24665, 0.24289, 0.26159)
-
-        self.train_mean, self.train_std = None, None
-        self.test_mean, self.test_std = None, None
-
-        self.train_trans = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.RandomCrop(32, padding=4),
-            transforms.RandomHorizontalFlip(p=0.5),
-            transforms.Normalize(self.train_mean, self.train_std)
-        ])
-
-        self.test_trans = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize(self.test_mean, self.test_std)
-        ])
-
-        if self.trans:
-            self.data = self.transforms()
-            self.data = self.data.reshape(-1, self.inSize, 1)
-        else:
-            # (N,H,W,C)--(N,C,H,W)--(50000, 3072, 1)
-            self.data = self.origin_data.transpose((0, 3, 1, 2)).reshape(-1, self.inSize, 1) / 255.0
-
+        # (N,H,W,C)--(50000, 3072, 1)
+        self.data = self.origin_data.reshape(-1, self.inSize, 1)
+        self.rc_prepare()
         self.batch_idxes = BatchSampler(RandomSampler(self.data, replacement=False),
                                         batch_size=self.batch_size,
                                         drop_last=True)
 
+        self.mean, self.std = self.get_mean_std()
+        self.train_trans = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.Normalize(self.mean, self.std)
+        ])
+
+        self.test_trans = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(self.mean, self.std)
+        ])
+
     def rc_prepare(self):
         """ RC preprocessing. """
-        for batch_idx in self.batch_idxes:
-            if self.trans:
-                u = self.data[batch_idx]
-            else:
-                u = torch.from_numpy(self.data[batch_idx]).to(torch.float32)
 
-            self.x = torch.matmul(u, self.Win)  # RC project  (bs, 3072, self.resSize)
-
-            # to transform after RC project
-            
-            rc_output = self.x.reshape(-1, 3 * self.resSize, 32, 32)
-
-            rc_labels = torch.tensor([self.labels[i] for i in batch_idx], dtype=torch.int64)
-
-            yield rc_output, rc_labels
+        self.data = np.matmul(self.data, self.Win)  # RC project  (50000, 3072, self.resSize)
+        self.data = np.reshape(self.data, (-1, 32, 32, 3 * self.resSize))  #
 
     def rc_reprocess(self):
-        pass
+        for batch_idx in self.batch_idxes:
+            batch_trans_data = self.transforms(batch_idx).to(torch.float32)
+            rc_labels = torch.tensor([self.labels[i] for i in batch_idx], dtype=torch.int64)
+
+            yield batch_trans_data, rc_labels
 
     def get_mean_std(self):
-        mean = 0
-        std = 1
+        channel = 3 * self.resSize
+        means = [0 for _ in range(channel)]
+        stds = [0 for _ in range(channel)]
+        num_data = len(self.data)
+        for idx in range(num_data):
+            for i in range(channel):
+                # print(self.data[idx].shape)  # torch.Size([9, 32, 32])
+                means[i] += self.data[idx][i, :, :].mean()
+                stds[i] += self.data[idx][i, :, :].std()
+
+        mean = np.array(means) / num_data
+        std = np.array(stds) / num_data
         return mean, std
 
     def set_seed(self, seed):
@@ -882,30 +875,32 @@ class RcProjectPre:
         plt.imshow(np.transpose(npimg, (1, 2, 0)))  # HWC
         plt.show()
 
-    def transforms(self):
-        trans_data = []
-        for idx in range(len(self.origin_data)):
+    def transforms(self, batch_idx):
+        batch_trans_data = []
+        for idx in batch_idx:
             if self.train:
-                x = self.train_trans(self.origin_data[idx])
+                x = self.train_trans(self.data[idx])
             else:
-                x = self.test_trans(self.origin_data[idx])
-            trans_data.append(x)
+                x = self.test_trans(self.data[idx])
+            batch_trans_data.append(x)
 
-        trans_data = torch.stack(trans_data, dim=0)
+        batch_trans_data = torch.stack(batch_trans_data, dim=0)
 
-        return trans_data
+        return batch_trans_data
+
 
 if __name__ == "__main__":
 
     batch_size = 4
     train_dataset = datasets.CIFAR10('cifar10', train=True, download=False)
-    rcPro = RcProject(train_dataset, batch_size=batch_size, train=True)
+    rcPro = RcProjectPre(train_dataset, batch_size=batch_size, train=True)
     # print(len(list(train_loader)))  # 390
     for i in range(2):  # 不同的epoch，采样不同
         print("epoch {}".format(i))
         train_loader = rcPro.rc_reprocess()
         for idx, (datas, labels) in enumerate(train_loader):
             if idx == 0:
+                # print(datas)
                 print(datas.size(), datas[0].dtype)  # torch.Size([5, 3, 32, 32]) torch.float32
                 # datas_numpy = datas.numpy()
                 # img = np.int8(datas_numpy)

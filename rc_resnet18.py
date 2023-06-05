@@ -10,7 +10,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torchvision import datasets
 from torch.optim.lr_scheduler import MultiStepLR
 
-from utils import WarmUpLR, get_network, RcProject
+from utils import WarmUpLR, get_network, RcProject, RcProjectPre
 from models.resnet import resnet101, resnet18
 
 import logging
@@ -156,7 +156,7 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='train resnet with cifar10 dataset.')
     parser.add_argument('-net', '--network', type=str, default='resnet18', help='network: resnet101 or rc_resnet_101')
-    parser.add_argument('-exp_num', '--exp_num', type=str, default='6', help='the exp num')
+    parser.add_argument('-exp_num', '--exp_num', type=str, default='2_rcpre', help='the exp num')
     parser.add_argument('-lr', '--learning_rate', type=float, default=1e-1, help='initial learning rate')
     parser.add_argument('-bs', '--batch_size', type=int, default=128, help='batch size for dataloader')
     parser.add_argument('-me', '--max_epoch', type=int, default=100, help='total epoch to train')
@@ -181,8 +181,8 @@ if __name__ == '__main__':
     test_dataset = datasets.CIFAR10('cifar10', train=False, download=True)
 
     # rc_projection and dataloader
-    train_rc = RcProject(train_dataset, batch_size=BATCH_SIZE, train=True)
-    test_rc = RcProject(test_dataset, batch_size=BATCH_SIZE, train=False)
+    train_rc = RcProjectPre(train_dataset, batch_size=BATCH_SIZE, train=True)
+    test_rc = RcProjectPre(test_dataset, batch_size=BATCH_SIZE, train=False)
 
 
     # model
@@ -192,8 +192,6 @@ if __name__ == '__main__':
     feature_map = 64
     model.conv1 = torch.nn.Conv2d(rc_out_channel, feature_map, 3, stride=1, padding=1, bias=False)  # 首层改成3x3卷积核
     model.maxpool = torch.nn.MaxPool2d(1, 1, 0)  # 通过1x1的池化核让池化层失效
-
-    # print(model)
 
     # file/dir
     exp_name = f'rc_{args.network}_exp{args.exp_num}_rSize{train_rc.resSize}_fp{feature_map}_lr{LR}'
