@@ -807,19 +807,32 @@ class RcProjectPre:
         self.dataset = userDataset
         self.origin_data = self.dataset.data  # np.array(50000, 32, 32, 3)
         self.inSize = self.origin_data.shape[1] * self.origin_data.shape[2] * self.origin_data.shape[3]
+        self.data = self.origin_data.reshape(-1, self.inSize, 1)  # (N,H,W,C)--(50000, 3072, 1)
         self.labels = self.dataset.targets  # (50000,)(list)
 
         self.x = np.zeros((self.batch_size, self.inSize, self.resSize))
         self.Win = np.random.randn(1, self.resSize)  # - 0.5
 
-        # (N,H,W,C)--(50000, 3072, 1)
-        self.data = self.origin_data.reshape(-1, self.inSize, 1)
-        self.rc_prepare()
-        self.batch_idxes = BatchSampler(RandomSampler(self.data, replacement=False),
-                                        batch_size=self.batch_size,
-                                        drop_last=True)
+        self.rc_project()  # rc project
 
-        self.mean, self.std = self.get_mean_std()
+        self.rc_trans_data_path = './rc_project/'
+        if not os.path.exists(self.rc_trans_data_path):
+            os.makedirs(self.rc_trans_data_path)
+
+        if self.train:
+            self.rc_trans_data = self.rc_trans_data_path + f'train_rc_data_rs{self.resSize}.pt'
+            self.mean = self.rc_trans_data_path + f'train_mean_rs{self.resSize}.npy'
+            self.std = self.rc_trans_data_path + f'train_std_rs{self.resSize}.npy'
+        else:
+            self.rc_trans_data = self.rc_trans_data_path + f'test_rc_data_rs{self.resSize}.pt'
+            self.mean = self.rc_trans_data_path + f'test_mean_rs{self.resSize}.npy'
+            self.std = self.rc_trans_data_path + f'test_std_rs{self.resSize}.npy'
+
+        if not os.path.isfile(self.mean):
+            self.mean, self.std = self.get_mean_std()
+        else:
+            self.mean, self.std = np.load(self.mean), np.load(self.std)
+
         self.train_trans = transforms.Compose([
             transforms.ToTensor(),
             transforms.RandomCrop(32, padding=4),
@@ -832,15 +845,41 @@ class RcProjectPre:
             transforms.Normalize(self.mean, self.std)
         ])
 
-    def rc_prepare(self):
-        """ RC preprocessing. """
+        self.memory_out = False
+        if not self.memory_out:
+            if not os.path.isfile(self.rc_trans_data):
+                self.rc_trans_data = self.all_transforms()
+            else:
+                self.rc_trans_data = torch.load(self.rc_trans_data)
+
+            self.batch_idxes = BatchSampler(RandomSampler(self.rc_trans_data, replacement=False),
+                                            batch_size=self.batch_size,
+                                            drop_last=True)
+        else:
+            self.batch_idxes = BatchSampler(RandomSampler(self.data, replacement=False),
+                                        batch_size=self.batch_size,
+                                        drop_last=True)
+
+    def rc_project(self):
+        """ RC rc_project. """
 
         self.data = np.matmul(self.data, self.Win)  # RC project  (50000, 3072, self.resSize)
-        self.data = np.reshape(self.data, (-1, 32, 32, 3 * self.resSize))  #
+        self.data = np.reshape(self.data, (-1, 32, 32, 3 * self.resSize))
 
     def rc_reprocess(self):
         for batch_idx in self.batch_idxes:
             batch_trans_data = self.transforms(batch_idx).to(torch.float32)
+            rc_labels = torch.tensor([self.labels[i] for i in batch_idx], dtype=torch.int64)
+
+            yield batch_trans_data, rc_labels
+
+    def all_rc_reprocess(self):
+        for batch_idx in self.batch_idxes:
+            batch_trans_data = []
+            for idx in batch_idx:
+                x = self.rc_trans_data[idx].to(torch.float32)
+                batch_trans_data.append(x)
+            batch_trans_data = torch.stack(batch_trans_data, dim=0)
             rc_labels = torch.tensor([self.labels[i] for i in batch_idx], dtype=torch.int64)
 
             yield batch_trans_data, rc_labels
@@ -858,6 +897,11 @@ class RcProjectPre:
 
         mean = np.array(means) / num_data
         std = np.array(stds) / num_data
+
+        # save data
+        np.save(self.mean, mean)
+        np.save(self.std, std)
+
         return mean, std
 
     def set_seed(self, seed):
@@ -888,16 +932,36 @@ class RcProjectPre:
 
         return batch_trans_data
 
+    def all_transforms(self):
+        all_trans_data = []
+        num_data = len(self.data)
+        for idx in range(num_data):
+            if self.train:
+                x = self.train_trans(self.data[idx])
+            else:
+                x = self.test_trans(self.data[idx])
+            all_trans_data.append(x)
+
+        all_trans_data = torch.stack(all_trans_data, dim=0)
+
+        # save data
+        torch.save(all_trans_data, self.rc_trans_data)
+
+        return all_trans_data
+
 
 if __name__ == "__main__":
 
     batch_size = 4
     train_dataset = datasets.CIFAR10('cifar10', train=True, download=False)
+    test_dataset = datasets.CIFAR10('cifar10', train=False, download=False)
     rcPro = RcProjectPre(train_dataset, batch_size=batch_size, train=True)
+    rcPro_test = RcProjectPre(test_dataset, batch_size=batch_size, train=False)
     # print(len(list(train_loader)))  # 390
     for i in range(2):  # 不同的epoch，采样不同
         print("epoch {}".format(i))
         train_loader = rcPro.rc_reprocess()
+        # train_loader = rcPro.all_rc_reprocess()
         for idx, (datas, labels) in enumerate(train_loader):
             if idx == 0:
                 # print(datas)
@@ -910,6 +974,21 @@ if __name__ == "__main__":
             # if idx > 5:
             #     break
 
+        for i in range(2):  # 不同的epoch，采样不同
+            print("epoch {}".format(i))
+            test_loader = rcPro_test.rc_reprocess()
+            # test_loader = rcPro_test.all_rc_reprocess()
+            for idx, (datas, labels) in enumerate(test_loader):
+                if idx == 0:
+                    # print(datas)
+                    print(datas.size(), datas[0].dtype)  # torch.Size([5, 3, 32, 32]) torch.float32
+                    # datas_numpy = datas.numpy()
+                    # img = np.int8(datas_numpy)
+                    # print(img, img.dtype)
+                    print(labels)
+                # print(len(labels))
+                # if idx > 5:
+                #     break
 
         # self.normalized_data = self.origin_data / 255.0
         #
