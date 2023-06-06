@@ -953,8 +953,8 @@ class RcProjectPre:
 if __name__ == "__main__":
 
     batch_size = 4
-    train_dataset = datasets.CIFAR10('cifar10', train=True, download=False)
-    test_dataset = datasets.CIFAR10('cifar10', train=False, download=False)
+    train_dataset = datasets.CIFAR10('cifar10', train=True, download=True)
+    test_dataset = datasets.CIFAR10('cifar10', train=False, download=True)
     rcPro = RcProjectPre(train_dataset, batch_size=batch_size, train=True)
     rcPro_test = RcProjectPre(test_dataset, batch_size=batch_size, train=False)
     # print(len(list(train_loader)))  # 390
