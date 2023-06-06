@@ -165,27 +165,6 @@ if __name__ == '__main__':
     parser.add_argument('-we', '--warm_epoch', type=int, default=2, help='warm up training phase')
     args = parser.parse_args()
 
-    # file/dir
-    exp_name = f'{args.network}_exp{args.exp_num}'
-    weight_dir = f'/tf_logs/weights/{exp_name}'
-    best_weight_pth = weight_dir + f'/max_epoch{args.max_epoch}'
-    log_dir = f"/tf_logs/runs/train/{exp_name}"
-
-    if not os.path.exists(weight_dir):
-        os.makedirs(weight_dir)
-
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
-
-    # log
-    logging.basicConfig(filename=log_dir + '.txt',
-                        filemode='a',
-                        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s-%(funcName)s',
-                        level=logging.INFO)
-
-    # writer = SummaryWriter(log_dir)
-    writer = SummaryWriter(log_dir)
-
     # seed
     torch.manual_seed(42)
     np.random.seed(42)
@@ -232,8 +211,30 @@ if __name__ == '__main__':
 
     # model
     model = get_network(args.network)
-    model.conv1 = torch.nn.Conv2d(3, 64, 3, stride=1, padding=1, bias=False)  # 首层改成3x3卷积核
+    feature_map = 64
+    model.conv1 = torch.nn.Conv2d(3, feature_map, 3, stride=1, padding=1, bias=False)  # 首层改成3x3卷积核
     model.maxpool = torch.nn.MaxPool2d(1, 1, 0)  # 通过1x1的池化核让池化层失效
+
+    # file/dir
+    exp_name = f'{args.network}_exp{args.exp_num}_fp{feature_map}_lr{LR}'
+    weight_dir = f'./weights/{exp_name}'
+    best_weight_pth = weight_dir + f'/max_epoch{args.max_epoch}'
+    log_dir = f"./runs/train/{exp_name}"
+
+    if not os.path.exists(weight_dir):
+        os.makedirs(weight_dir)
+
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+
+    # log
+    logging.basicConfig(filename=log_dir + '.txt',
+                        filemode='a',
+                        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s-%(funcName)s',
+                        level=logging.INFO)
+
+    # writer = SummaryWriter(log_dir)
+    writer = SummaryWriter(log_dir)
 
     # check model
     logging.info("============== layers needed to train ==============")

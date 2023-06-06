@@ -155,33 +155,12 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='train resnet with cifar10 dataset.')
     parser.add_argument('-net', '--network', type=str, default='resnet101', help='network: resnet101 or rc_resnet_101')
-    parser.add_argument('-exp_num', '--exp_num', type=str, default='5', help='the exp num')
+    parser.add_argument('-exp_num', '--exp_num', type=str, default='0', help='the exp num')
     parser.add_argument('-lr', '--learning_rate', type=float, default=1e-1, help='initial learning rate')
-    parser.add_argument('-bs', '--batch_size', type=int, default=32, help='batch size for dataloader')
+    parser.add_argument('-bs', '--batch_size', type=int, default=128, help='batch size for dataloader')
     parser.add_argument('-me', '--max_epoch', type=int, default=200, help='total epoch to train')
     parser.add_argument('-we', '--warm_epoch', type=int, default=2, help='warm up training phase')
     args = parser.parse_args()
-
-    # file/dir
-    exp_name = f'rc_{args.network}_exp{args.exp_num}'
-    weight_dir = f'/tf_logs/weights/{exp_name}'
-    best_weight_pth = weight_dir + f'/max_epoch{args.max_epoch}'
-    log_dir = f"/tf_logs/runs/train/{exp_name}"
-
-    if not os.path.exists(weight_dir):
-        os.makedirs(weight_dir)
-
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
-
-    # log
-    logging.basicConfig(filename=log_dir + '.txt',
-                        filemode='a',
-                        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s-%(funcName)s',
-                        level=logging.INFO)
-
-    # writer = SummaryWriter(log_dir)
-    writer = SummaryWriter(log_dir)
 
     # seed
     torch.manual_seed(42)
@@ -204,17 +183,37 @@ if __name__ == '__main__':
     train_rc = RcProject(train_dataset, batch_size=BATCH_SIZE, train=True)
     test_rc = RcProject(test_dataset, batch_size=BATCH_SIZE, train=False)
 
-    # train/test Win
-    logging.info("\n\n")
-    logging.info(f"train_rc.Win: {train_rc.Win}, test_rc.Win: {test_rc.Win}")
-    logging.info("\n\n")
-
     # model
     model = get_network(args.network)
     # model's in_channel equals rc's out_channel
     rc_out_channel = 3 * train_rc.resSize
-    model.conv1 = torch.nn.Conv2d(rc_out_channel, 64, 3, stride=1, padding=1, bias=False)  # 首层改成3x3卷积核
+    feature_map = 64
+    model.conv1 = torch.nn.Conv2d(rc_out_channel, feature_map, 3, stride=1, padding=1, bias=False)  # 首层改成3x3卷积核
     model.maxpool = torch.nn.MaxPool2d(1, 1, 0)  # 通过1x1的池化核让池化层失效
+
+    # file/dir
+    exp_name = f'rc_{args.network}_exp{args.exp_num}_rSize{train_rc.resSize}_fp{feature_map}_lr{LR}'
+    weight_dir = f'./weights/{exp_name}'
+    best_weight_pth = weight_dir + f'/max_epoch{args.max_epoch}'
+    log_dir = f"./runs/train/{exp_name}"
+
+    if not os.path.exists(weight_dir):
+        os.makedirs(weight_dir)
+
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+
+    # log
+    logging.basicConfig(filename=log_dir + '.txt',
+                        filemode='a',
+                        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s-%(funcName)s',
+                        level=logging.INFO)
+
+    writer = SummaryWriter(log_dir)
+    # train/test Win
+    logging.info("\n\n")
+    logging.info(f"train_rc.Win: {train_rc.Win}, test_rc.Win: {test_rc.Win}, resSize: {train_rc.resSize}")
+    logging.info("\n\n")
 
     # check model
     logging.info("============== layers needed to train ==============")

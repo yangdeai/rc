@@ -184,7 +184,6 @@ if __name__ == '__main__':
     train_rc = RcProjectPre(train_dataset, batch_size=BATCH_SIZE, train=True)
     test_rc = RcProjectPre(test_dataset, batch_size=BATCH_SIZE, train=False)
 
-
     # model
     model = get_network(args.network)
     # model's in_channel equals rc's out_channel
@@ -217,7 +216,6 @@ if __name__ == '__main__':
     logging.info(f"train_rc.Win: {train_rc.Win}, test_rc.Win: {test_rc.Win}, resSize: {train_rc.resSize}")
     logging.info("\n\n")
 
-    
     # check model
     logging.info("============== layers needed to train ==============")
     for name, params in model.named_parameters():

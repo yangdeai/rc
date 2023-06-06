@@ -184,7 +184,6 @@ if __name__ == '__main__':
     train_rc = RcProjectPre(train_dataset, batch_size=BATCH_SIZE, train=True)
     test_rc = RcProjectPre(test_dataset, batch_size=BATCH_SIZE, train=False)
 
-
     # model
     model = get_network(args.network)
     # model's in_channel equals rc's out_channel
