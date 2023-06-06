@@ -206,9 +206,9 @@ if __name__ == '__main__':
     
     # file/dir
     exp_name = f'{args.network}_exp{args.exp_num}_fp{feature_map}_lr{LR}'
-    weight_dir = f'/tf_logs/weights/{exp_name}'
+    weight_dir = f'./weights/{exp_name}'
     best_weight_pth = weight_dir + f'/max_epoch{args.max_epoch}'
-    log_dir = f"/tf_logs/runs/train/{exp_name}"
+    log_dir = f"./runs/train/{exp_name}"
 
     if not os.path.exists(weight_dir):
         os.makedirs(weight_dir)
