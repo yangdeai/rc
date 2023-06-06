@@ -10,8 +10,8 @@ from torch.utils.tensorboard import SummaryWriter
 from torchvision import datasets
 from torch.optim.lr_scheduler import MultiStepLR
 
-from utils import WarmUpLR, get_network, RcProject
-from models.resnet import resnet101
+from utils import WarmUpLR, get_network, RcProject, RcProjectPre
+from models.resnet import resnet101, resnet18
 
 import logging
 import time
@@ -34,17 +34,18 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
         train_total_loss = 0
         train_total_num = 0
         train_total_correct = 0
+
         if epoch_count / 10 == 1:
             epoch_count = 0
             lr = lr * 0.5
-            optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=1e-4)
+            optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=5e-4)
 
         logging.info('Epoch {}/{}'.format(epoch, MAX_EPOCH))
         logging.info('-' * 10)
         logging.info("\n")
 
         # next epoch dataloader
-        train_loader = train_rc.rc_reprocess()
+        train_loader = train_rc.all_rc_reprocess()
         writer.add_histogram('train_rc.Win', train_rc.Win, epoch)
         with torch.set_grad_enabled(True):
             model.train()
@@ -82,7 +83,7 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
             writer.add_histogram(name + '_data', param, epoch)
 
         # next epoch dataloader
-        test_loader = test_rc.rc_reprocess()
+        test_loader = test_rc.all_rc_reprocess()
         writer.add_histogram('test_rc.Win', test_rc.Win, epoch)
         with torch.set_grad_enabled(False):
             model.eval()
@@ -102,7 +103,7 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
             val_loss = val_total_loss / val_total_num
             val_acc = val_total_correct / val_total_num
 
-            if val_loss < val_last_loss:
+            if val_loss < val_last_loss and abs(val_loss - val_last_loss) >= 0.001:
                 val_last_loss = val_loss
                 val_last_acc = val_acc
                 epoch_count = 0
@@ -155,16 +156,16 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='train resnet with cifar10 dataset.')
     parser.add_argument('-net', '--network', type=str, default='resnet101', help='network: resnet101 or rc_resnet_101')
-    parser.add_argument('-exp_num', '--exp_num', type=str, default='0', help='the exp num')
+    parser.add_argument('-exp_num', '--exp_num', type=str, default='0_rcpre', help='the exp num')
     parser.add_argument('-lr', '--learning_rate', type=float, default=1e-1, help='initial learning rate')
     parser.add_argument('-bs', '--batch_size', type=int, default=128, help='batch size for dataloader')
-    parser.add_argument('-me', '--max_epoch', type=int, default=200, help='total epoch to train')
+    parser.add_argument('-me', '--max_epoch', type=int, default=150, help='total epoch to train')
     parser.add_argument('-we', '--warm_epoch', type=int, default=2, help='warm up training phase')
     args = parser.parse_args()
 
     # seed
-    torch.manual_seed(42)
-    np.random.seed(42)
+    torch.manual_seed(1234)
+    np.random.seed(1234)
 
     # device
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -180,8 +181,8 @@ if __name__ == '__main__':
     test_dataset = datasets.CIFAR10('cifar10', train=False, download=True)
 
     # rc_projection and dataloader
-    train_rc = RcProject(train_dataset, batch_size=BATCH_SIZE, train=True)
-    test_rc = RcProject(test_dataset, batch_size=BATCH_SIZE, train=False)
+    train_rc = RcProjectPre(train_dataset, batch_size=BATCH_SIZE, train=True)
+    test_rc = RcProjectPre(test_dataset, batch_size=BATCH_SIZE, train=False)
 
     # model
     model = get_network(args.network)
@@ -224,7 +225,7 @@ if __name__ == '__main__':
     # loss function
     loss_fn = torch.nn.CrossEntropyLoss()
     # optimizer
-    optimizer = torch.optim.SGD(model.parameters(), lr=LR, momentum=0.9, weight_decay=1e-4)
+    optimizer = torch.optim.SGD(model.parameters(), lr=LR, momentum=0.9, weight_decay=5e-4)
 
     logging.info("===   !!!START TRAINING!!!   ===")
     # logging.info('train_data_num: {}, validation_data_num: {}'.format(len(train_dataset), len(val_cifar_dataset)))

@@ -45,7 +45,7 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
         logging.info("\n")
 
         # next epoch dataloader
-        train_loader = train_rc.rc_reprocess()
+        train_loader = train_rc.all_rc_reprocess()
         writer.add_histogram('train_rc.Win', train_rc.Win, epoch)
         with torch.set_grad_enabled(True):
             model.train()
@@ -83,7 +83,7 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
             writer.add_histogram(name + '_data', param, epoch)
 
         # next epoch dataloader
-        test_loader = test_rc.rc_reprocess()
+        test_loader = test_rc.all_rc_reprocess()
         writer.add_histogram('test_rc.Win', test_rc.Win, epoch)
         with torch.set_grad_enabled(False):
             model.eval()
@@ -216,7 +216,6 @@ if __name__ == '__main__':
     logging.info(f"train_rc.Win: {train_rc.Win}, test_rc.Win: {test_rc.Win}, resSize: {train_rc.resSize}")
     logging.info("\n\n")
 
-    
     # check model
     logging.info("============== layers needed to train ==============")
     for name, params in model.named_parameters():

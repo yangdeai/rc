@@ -11,7 +11,7 @@ from torchvision import datasets
 from torch.optim.lr_scheduler import MultiStepLR
 
 from utils import WarmUpLR, get_network
-from models.resnet import resnet10
+from models.resnet import resnet101
 
 import logging
 import time
@@ -19,7 +19,6 @@ import argparse
 
 
 def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
-
     model = model.to(device)
     # 训练时间
     start = time.time()
@@ -38,8 +37,7 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
             epoch_count = 0
             lr = lr * 0.5
             optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=5e-4)
-            
-            
+
         logging.info('Epoch {}/{}'.format(epoch, MAX_EPOCH))
         logging.info('-' * 10)
         logging.info("\n")
@@ -113,7 +111,7 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
             logging.info('total time {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
             logging.info('valid Loss: {:.4f}[{}], valid Acc: {:.4f}'.format(val_loss, epoch_count, val_acc))
 
-        # scheduler_optimizer.step()         
+        # scheduler_optimizer.step()
         logging.info("\n")
         logging.info('current lr: {:.7f}'.format(optimizer.param_groups[0]['lr']))
         logging.info("\n")
@@ -128,7 +126,6 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
             'train_acc': train_acc * 100,
             'val_acc': val_acc * 100,
         }, epoch)
-
 
     # train end
     time_elapsed = time.time() - start
@@ -160,7 +157,7 @@ if __name__ == '__main__':
 
     # device
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    
+
     # hyper params
     LR = args.learning_rate
     MAX_EPOCH = args.max_epoch
@@ -203,7 +200,7 @@ if __name__ == '__main__':
     feature_map = 64
     model.conv1 = torch.nn.Conv2d(3, feature_map, 3, stride=1, padding=1, bias=False)  # 首层改成3x3卷积核
     model.maxpool = torch.nn.MaxPool2d(1, 1, 0)  # 通过1x1的池化核让池化层失效
-    
+
     # file/dir
     exp_name = f'{args.network}_exp{args.exp_num}_fp{feature_map}_lr{LR}'
     weight_dir = f'./weights/{exp_name}'

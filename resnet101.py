@@ -19,7 +19,6 @@ import argparse
 
 
 def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
-
     model = model.to(device)
     # 训练时间
     start = time.time()
@@ -33,16 +32,11 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
         train_total_loss = 0
         train_total_num = 0
         train_total_correct = 0
-        if epoch < WARM_EPOCH:
-            lr = 0.01
-            optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=1e-4)
-        elif epoch == WARM_EPOCH:
-            lr = 0.1
-            optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=1e-4)
-        elif epoch_count / 10 == 1 and epoch > WARM_EPOCH:
+
+        if epoch_count / 10 == 1:
             epoch_count = 0
             lr = lr * 0.5
-            optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=1e-4)
+            optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=5e-4)
 
         logging.info('Epoch {}/{}'.format(epoch, MAX_EPOCH))
         logging.info('-' * 10)
@@ -69,9 +63,6 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
 
                 train_total_num += labels.shape[0]
                 train_total_loss += loss.item()
-
-                if iter >= 1:
-                    break
 
             train_loss = train_total_loss / train_total_num
             train_acc = train_total_correct / train_total_num
@@ -101,13 +92,10 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
                 val_total_loss += loss.item()
                 val_total_num += labels.shape[0]
 
-                if iter >= 1:
-                    break
-
             val_loss = val_total_loss / val_total_num
             val_acc = val_total_correct / val_total_num
 
-            if val_loss < val_last_loss:
+            if val_loss < val_last_loss and abs(val_loss - val_last_loss) >= 0.001:
                 val_last_loss = val_loss
                 val_last_acc = val_acc
                 epoch_count = 0
@@ -123,6 +111,7 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
             logging.info('total time {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
             logging.info('valid Loss: {:.4f}[{}], valid Acc: {:.4f}'.format(val_loss, epoch_count, val_acc))
 
+        # scheduler_optimizer.step()
         logging.info("\n")
         logging.info('current lr: {:.7f}'.format(optimizer.param_groups[0]['lr']))
         logging.info("\n")
@@ -137,9 +126,6 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
             'train_acc': train_acc * 100,
             'val_acc': val_acc * 100,
         }, epoch)
-
-        if epoch >= 1:
-            break
 
     # train end
     time_elapsed = time.time() - start
@@ -161,17 +147,17 @@ if __name__ == '__main__':
     parser.add_argument('-exp_num', '--exp_num', type=str, default='0', help='the exp num')
     parser.add_argument('-lr', '--learning_rate', type=float, default=1e-1, help='initial learning rate')
     parser.add_argument('-bs', '--batch_size', type=int, default=128, help='batch size for dataloader')
-    parser.add_argument('-me', '--max_epoch', type=int, default=200, help='total epoch to train')
+    parser.add_argument('-me', '--max_epoch', type=int, default=150, help='total epoch to train')
     parser.add_argument('-we', '--warm_epoch', type=int, default=2, help='warm up training phase')
     args = parser.parse_args()
 
     # seed
-    torch.manual_seed(42)
-    np.random.seed(42)
+    torch.manual_seed(1234)
+    np.random.seed(1234)
 
     # device
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    
+
     # hyper params
     LR = args.learning_rate
     MAX_EPOCH = args.max_epoch
@@ -245,7 +231,9 @@ if __name__ == '__main__':
     # loss function
     loss_fn = torch.nn.CrossEntropyLoss()
     # optimizer
-    optimizer = torch.optim.SGD(model.parameters(), lr=LR, momentum=0.9, weight_decay=1e-4)
+    optimizer = torch.optim.SGD(model.parameters(), lr=LR, momentum=0.9, weight_decay=5e-4)
+    # scheduler_optimizer = torch.optim.lr_scheduler.MultiStepLR(optimizer, [20, 30, 40], gamma=0.5,
+    #                                                            last_epoch=-1)
 
     logging.info("===   !!!START TRAINING!!!   ===")
     # logging.info('train_data_num: {}, validation_data_num: {}'.format(len(train_dataset), len(val_cifar_dataset)))
