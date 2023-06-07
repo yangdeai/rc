@@ -52,7 +52,7 @@ class BasicBlock(nn.Module):
         self.bn2 = norm_layer(planes)
         self.downsample = downsample
         self.stride = stride
-        # self.dropout2d = nn.Dropout2d(p=0.5)
+        self.dropout2d = nn.Dropout2d(p=0.5)
 
     def forward(self, x):
         identity = x
@@ -63,7 +63,7 @@ class BasicBlock(nn.Module):
 
         out = self.conv2(out)
         out = self.bn2(out)
-        # out = self.dropout2d(out)  # 添加Dropout
+        out = self.dropout2d(out)  # 添加Dropout
 
         if self.downsample is not None:
             identity = self.downsample(x)
@@ -108,6 +108,7 @@ class Bottleneck(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
+        self.dropout2d = nn.Dropout2d(p=0.5)
 
     def forward(self, x):
         identity = x
@@ -122,6 +123,7 @@ class Bottleneck(nn.Module):
 
         out = self.conv3(out)
         out = self.bn3(out)
+        out = self.dropout2d(out)  # 添加Dropout
 
         if self.downsample is not None:
             identity = self.downsample(x)  # 下采样对应论文的实线
@@ -174,7 +176,7 @@ class ResNet(nn.Module):
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2, dilate=replace_stride_with_dilation[1])
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2, dilate=replace_stride_with_dilation[2])
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        # self.dropout = nn.Dropout(p=0.5)
+        self.dropout = nn.Dropout(p=0.5)
         self.fc = nn.Linear(512 * block.expansion, num_classes)
 
         for m in self.modules():
@@ -245,7 +247,7 @@ class ResNet(nn.Module):
         x = self.layer4(x)
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
-        # x = self.dropout(x)  # 添加Dropout
+        x = self.dropout(x)  # 添加Dropout
         x = self.fc(x)
 
         return x

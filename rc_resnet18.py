@@ -153,7 +153,7 @@ if __name__ == '__main__':
     parser.add_argument('-exp_num', '--exp_num', type=str, default='0_rc', help='the exp num')
     parser.add_argument('-lr', '--learning_rate', type=float, default=1e-1, help='initial learning rate')
     parser.add_argument('-bs', '--batch_size', type=int, default=128, help='batch size for dataloader')
-    parser.add_argument('-me', '--max_epoch', type=int, default=150, help='total epoch to train')
+    parser.add_argument('-me', '--max_epoch', type=int, default=250, help='total epoch to train')
     parser.add_argument('-we', '--warm_epoch', type=int, default=2, help='warm up training phase')
     parser.add_argument('-seed', '--random_seed', type=int, default=1234, help='random seed')
     args = parser.parse_args()
@@ -175,9 +175,10 @@ if __name__ == '__main__':
     # rc_projection and dataloader
     input_port_num = 1
     output_port_num = 6
+    structure = "44"
 
-    train_rc_project = RcProject(train_dataset, in_num=input_port_num, out_num=output_port_num, structure="44", seed=SEED)
-    test_rc_project = RcProject(test_dataset, in_num=input_port_num, out_num=output_port_num, structure="44", seed=SEED)
+    train_rc_project = RcProject(train_dataset, in_num=input_port_num, out_num=output_port_num, structure=structure, seed=SEED)
+    test_rc_project = RcProject(test_dataset, in_num=input_port_num, out_num=output_port_num, structure=structure, seed=SEED)
 
     train_rc_dataset = PreproRcData(rcPro=train_rc_project, batch_size=BATCH_SIZE, train=True, seed=SEED)
     test_rc_dataset = PreproRcData(rcPro=test_rc_project, batch_size=BATCH_SIZE, train=False, seed=SEED)
@@ -194,7 +195,8 @@ if __name__ == '__main__':
     model.maxpool = torch.nn.MaxPool2d(1, 1, 0)  # 通过1x1的池化核让池化层失效
 
     # file/dir
-    exp_name = f'rc_{args.network}_exp{args.exp_num}_in{train_rc_project.in_num}_out{train_rc_project.out_num}_fp{feature_map}_lr{LR}'
+    exp_name = f'rc_{args.network}_exp{args.exp_num}_in{train_rc_project.in_num}_out{train_rc_project.out_num}' \
+               f'_fp{feature_map}_lr{LR}_max{MAX_EPOCH}'
     weight_dir = f'./weights/{exp_name}'
     best_weight_pth = weight_dir + f'/max_epoch{args.max_epoch}'
     log_dir = f"./runs/train/{exp_name}"
