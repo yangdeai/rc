@@ -1,21 +1,17 @@
 # 导入常用包
 import os
-from datetime import datetime
-
-import numpy as np
-import torch
-from torch.utils.data import Dataset, DataLoader
-from torchvision.transforms import transforms
-from torch.utils.tensorboard import SummaryWriter
-from torchvision import datasets
-from torch.optim.lr_scheduler import MultiStepLR
-
-from utils import WarmUpLR, get_network, RcProject, RcProjectPre
-from models.resnet import resnet101, resnet18
-
 import logging
 import time
 import argparse
+
+import numpy as np
+
+import torch
+from torch.utils.tensorboard import SummaryWriter
+from torchvision import datasets
+
+from utils import get_network, PreproRcData
+from rcProjection import RcProject
 
 
 def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
@@ -44,9 +40,8 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
         logging.info('-' * 10)
         logging.info("\n")
 
-        # next epoch dataloader
-        train_loader = train_rc.all_rc_reprocess()
-        writer.add_histogram('train_rc.Win', train_rc.Win, epoch)
+        # train dataloader
+        train_loader = train_rc_dataset.dataloader()
         with torch.set_grad_enabled(True):
             model.train()
             for iter, (images, labels) in enumerate(train_loader):
@@ -82,9 +77,8 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
             writer.add_histogram(name + '_grad', param.grad, epoch)
             writer.add_histogram(name + '_data', param, epoch)
 
-        # next epoch dataloader
-        test_loader = test_rc.all_rc_reprocess()
-        writer.add_histogram('test_rc.Win', test_rc.Win, epoch)
+        # test dataloader
+        test_loader = test_rc_dataset.dataloader()
         with torch.set_grad_enabled(False):
             model.eval()
             val_total_loss = 0
@@ -121,7 +115,7 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
 
         # scheduler_optimizer.step()
         logging.info("\n\n")
-        logging.info(f"train_rc.Win: {train_rc.Win}, test_rc.Win: {test_rc.Win}, epoch{epoch}/{MAX_EPOCH}")
+        logging.info(f"train_rc.Win: {train_rc_project.Win}, test_rc.Win: {test_rc_project.Win}, epoch{epoch}/{MAX_EPOCH}")
         logging.info("\n\n")
 
         logging.info("\n")
@@ -156,21 +150,19 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='train resnet with cifar10 dataset.')
     parser.add_argument('-net', '--network', type=str, default='resnet18', help='network: resnet101 or rc_resnet_101')
-    parser.add_argument('-exp_num', '--exp_num', type=str, default='0_rcpre', help='the exp num')
+    parser.add_argument('-exp_num', '--exp_num', type=str, default='0_rc', help='the exp num')
     parser.add_argument('-lr', '--learning_rate', type=float, default=1e-1, help='initial learning rate')
     parser.add_argument('-bs', '--batch_size', type=int, default=128, help='batch size for dataloader')
     parser.add_argument('-me', '--max_epoch', type=int, default=150, help='total epoch to train')
     parser.add_argument('-we', '--warm_epoch', type=int, default=2, help='warm up training phase')
+    parser.add_argument('-seed', '--random_seed', type=int, default=1234, help='random seed')
     args = parser.parse_args()
 
-    # seed
-    torch.manual_seed(1234)
-    np.random.seed(1234)
-
-    # device
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-
     # hyper params
+    SEED = args.random_seed
+    torch.manual_seed(SEED)
+    np.random.seed(SEED)
+
     LR = args.learning_rate
     MAX_EPOCH = args.max_epoch
     WARM_EPOCH = args.warm_epoch
@@ -181,19 +173,28 @@ if __name__ == '__main__':
     test_dataset = datasets.CIFAR10('cifar10', train=False, download=True)
 
     # rc_projection and dataloader
-    train_rc = RcProjectPre(train_dataset, batch_size=BATCH_SIZE, train=True)
-    test_rc = RcProjectPre(test_dataset, batch_size=BATCH_SIZE, train=False)
+    input_port_num = 1
+    output_port_num = 6
+
+    train_rc_project = RcProject(train_dataset, in_num=input_port_num, out_num=output_port_num, seed=SEED)
+    test_rc_project = RcProject(test_dataset, in_num=input_port_num, out_num=output_port_num, seed=SEED)
+
+    train_rc_dataset = PreproRcData(rcPro=train_rc_project, batch_size=BATCH_SIZE, train=True, seed=SEED)
+    test_rc_dataset = PreproRcData(rcPro=test_rc_project, batch_size=BATCH_SIZE, train=False, seed=SEED)
+
+    # device
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
     # model
     model = get_network(args.network)
     # model's in_channel equals rc's out_channel
-    rc_out_channel = 3 * train_rc.resSize
+    rc_out_channel = 3 * train_rc_project.out_num
     feature_map = 64
     model.conv1 = torch.nn.Conv2d(rc_out_channel, feature_map, 3, stride=1, padding=1, bias=False)  # 首层改成3x3卷积核
     model.maxpool = torch.nn.MaxPool2d(1, 1, 0)  # 通过1x1的池化核让池化层失效
 
     # file/dir
-    exp_name = f'rc_{args.network}_exp{args.exp_num}_rSize{train_rc.resSize}_fp{feature_map}_lr{LR}'
+    exp_name = f'rc_{args.network}_exp{args.exp_num}_in{train_rc_project.in_num}_out{train_rc_project.out_num}_fp{feature_map}_lr{LR}'
     weight_dir = f'./weights/{exp_name}'
     best_weight_pth = weight_dir + f'/max_epoch{args.max_epoch}'
     log_dir = f"./runs/train/{exp_name}"
@@ -213,7 +214,8 @@ if __name__ == '__main__':
     writer = SummaryWriter(log_dir)
     # train/test Win
     logging.info("\n\n")
-    logging.info(f"train_rc.Win: {train_rc.Win}, test_rc.Win: {test_rc.Win}, resSize: {train_rc.resSize}")
+    logging.info(f"train_rc.Win: {train_rc_project.Win}, test_rc.Win: {test_rc_project.Win}, "
+                 f"in_num: {train_rc_project.in_num}out_num: {train_rc_project.out_num}")
     logging.info("\n\n")
 
     # check model

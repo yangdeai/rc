@@ -15,9 +15,9 @@ from torchvision import datasets
 
 
 class RcProject:
-    def __init__(self, userDataset=None, in_num=1, out_num=6):
+    def __init__(self, userDataset=None, in_num=1, out_num=6, seed=1234):
 
-        np.random.seed(1234)  # 随机种子
+        np.random.seed(seed)  # 随机种子
 
         self.in_num = in_num  # 输入端口数
         self.out_num = out_num  # 输出端口数

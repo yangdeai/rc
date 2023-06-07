@@ -11,21 +11,14 @@
 """
 
 import os
-import pickle
 import sys
-import re
-import datetime
-import shutil
-import pickle
-import matplotlib.pyplot as plt
 
 import numpy as np
 
 import torch
-import torchvision
 from torchvision import datasets
 import torchvision.transforms as transforms
-from torch.utils.data import DataLoader, RandomSampler, BatchSampler, SequentialSampler
+from torch.utils.data import RandomSampler, BatchSampler, SequentialSampler
 
 from rcProjection import RcProject
 
@@ -58,7 +51,12 @@ def get_network(network):
 
 
 class PreproRcData:
-    def __init__(self, rcPro=None, batch_size=128, train=True):
+    """
+        对RC处理之后的数据进行处理，作用为dataLoader.
+    """
+    def __init__(self, rcPro=None, batch_size=128, train=True, seed=1234):
+
+        self.set_seed(seed)
 
         self.rc_data = rcPro.rc_project()
         self.labels = rcPro.labels
@@ -88,16 +86,16 @@ class PreproRcData:
         ])
         self.prepro_data = self.get_prepro_data()
 
-        self.batch_idxes = BatchSampler(RandomSampler(self.prepro_data, replacement=False),
-                                        batch_size=self.batch_size,
-                                        drop_last=True)
-
-    def dataloader(self):  # all_rc_reprocess
+    def dataloader(self):
         """
             根据batch_idx抽取采样数据，生成器。
         :return: batch_size大小的数据
         """
-        for batch_idx in self.batch_idxes:
+        batch_idxes = BatchSampler(RandomSampler(self.prepro_data, replacement=False),
+                                        batch_size=self.batch_size,
+                                        drop_last=True)
+
+        for batch_idx in batch_idxes:
             batch_trans_data = []
             for sample_idx in batch_idx:
                 x = self.prepro_data[sample_idx].to(torch.float32)
@@ -109,9 +107,9 @@ class PreproRcData:
 
     def get_prepro_data(self):
         if self.train:
-            prepro_data_file = self.prepro_data_path + f'train_in{self.in_num}_out{self.out_num}.pt'
+            prepro_data_file = self.prepro_data_path + f'train_pre_in{self.in_num}_out{self.out_num}.pt'
         else:
-            prepro_data_file = self.prepro_data_path + f'test_in{self.in_num}_out{self.out_num}.pt'
+            prepro_data_file = self.prepro_data_path + f'test_pre_in{self.in_num}_out{self.out_num}.pt'
 
         if not os.path.isfile(prepro_data_file):
             prepro_data = self.all_transforms(prepro_data_file)
@@ -120,13 +118,30 @@ class PreproRcData:
 
         return prepro_data
 
+    def all_transforms(self, prepro_data_file):
+        all_trans_data = []
+        num_data = len(self.rc_data)
+        for sample_idx in range(num_data):
+            if self.train:
+                x = self.train_trans(self.rc_data[sample_idx])
+            else:
+                x = self.test_trans(self.rc_data[sample_idx])
+            all_trans_data.append(x)
+
+        all_trans_data = torch.stack(all_trans_data, dim=0)
+
+        # save data
+        torch.save(all_trans_data, prepro_data_file)
+
+        return all_trans_data
+
     def get_mean_std(self):
         if self.train:
-            mean_file = self.prepro_data_path + f'train_in{self.in_num}_out{self.out_num}.npy'
-            std_file = self.prepro_data_path + f'train_in{self.in_num}_out{self.out_num}.npy'
+            mean_file = self.prepro_data_path + f'train_mean_in{self.in_num}_out{self.out_num}.npy'
+            std_file = self.prepro_data_path + f'train_std_in{self.in_num}_out{self.out_num}.npy'
         else:
-            mean_file = self.prepro_data_path + f'test_in{self.in_num}_out{self.out_num}.npy'
-            std_file = self.prepro_data_path + f'test_in{self.in_num}_out{self.out_num}.npy'
+            mean_file = self.prepro_data_path + f'test_mean_in{self.in_num}_out{self.out_num}.npy'
+            std_file = self.prepro_data_path + f'test_std_in{self.in_num}_out{self.out_num}.npy'
 
         if (not os.path.isfile(mean_file)) or (not os.path.isfile(std_file)):
             mean, std = self.compute_mean_std(mean_file, std_file)
@@ -154,64 +169,49 @@ class PreproRcData:
 
         return mean, std
 
-    def all_transforms(self, prepro_data_file):
-        all_trans_data = []
-        num_data = len(self.rc_data)
-        for sample_idx in range(num_data):
-            if self.train:
-                x = self.train_trans(self.rc_data[sample_idx])
-            else:
-                x = self.test_trans(self.rc_data[sample_idx])
-            all_trans_data.append(x)
-
-        all_trans_data = torch.stack(all_trans_data, dim=0)
-
-        # save data
-        torch.save(all_trans_data, prepro_data_file)
-
-        return all_trans_data
+    def set_seed(self, seed):
+        torch.manual_seed(seed)  # 固定随机种子（CPU）
+        np.random.seed(seed)  # 保证后续使用random函数时，产生固定的随机数
+        if torch.cuda.is_available():  # 固定随机种子（GPU)
+            torch.cuda.manual_seed(seed)  # 为当前GPU设置
+            torch.backends.cudnn.benchmark = True  # False  # GPU、网络结构固定，可设置为True
+            torch.backends.cudnn.deterministic = True  # 固定网络结构
 
 
 if __name__ == "__main__":
 
-    batch_size = 4
+    random_seed = 1234
+    BATCH_SIZE = 4
+
     input_port_num = 1  # 输入端口数
     output_port_num = 6  # 输出端口数
     train_dataset = datasets.CIFAR10('cifar10', train=True, download=True)  # 训练数据集
     test_dataset = datasets.CIFAR10('cifar10', train=False, download=True)  # 测试数据集
-    train_rc_project = RcProject(train_dataset, in_num=input_port_num, out_num=output_port_num)
-    test_rc_project = RcProject(test_dataset, in_num=input_port_num, out_num=output_port_num)
+    train_rc_project = RcProject(train_dataset, in_num=input_port_num, out_num=output_port_num, seed=random_seed)
+    test_rc_project = RcProject(test_dataset, in_num=input_port_num, out_num=output_port_num, seed=random_seed)
 
-    train_rc_dataset = PreproRcData(rcPro=train_rc_project, batch_size=batch_size, train=True)
-    test_rc_dataset = PreproRcData(rcPro=test_rc_project, batch_size=batch_size, train=False)
+    train_rc_dataset = PreproRcData(rcPro=train_rc_project, batch_size=BATCH_SIZE, train=True, seed=random_seed)
+    test_rc_dataset = PreproRcData(rcPro=test_rc_project, batch_size=BATCH_SIZE, train=False, seed=random_seed)
 
-    for i in range(2):  # 不同的epoch
+    for i in range(2):
         print("epoch {}".format(i))
         train_loader = train_rc_dataset.dataloader()
         for idx, (datas, labels) in enumerate(train_loader):
             if idx == 0:
-                # print(datas)
-                print(datas.size(), datas[0].dtype)  # torch.Size([5, 3, 32, 32]) torch.float32
-                # datas_numpy = datas.numpy()
-                # img = np.int8(datas_numpy)
-                # print(img, img.dtype)
+                print(datas.size(), datas[0].dtype)
                 print(labels)
-            print(len(labels))
+                print(len(labels))
             if idx > 5:
                 break
 
-        for i in range(2):  # 不同的epoch
-            print("epoch {}".format(i))
-            test_loader = test_rc_dataset.dataloader()
-            for idx, (datas, labels) in enumerate(test_loader):
-                if idx == 0:
-                    # print(datas)
-                    print(datas.size(), datas[0].dtype)  # torch.Size([5, 3, 32, 32]) torch.float32
-                    # datas_numpy = datas.numpy()
-                    # img = np.int8(datas_numpy)
-                    # print(img, img.dtype)
-                    print(labels)
-                # print(len(labels))
-                # if idx > 5:
-                #     break
+    for i in range(2):
+        print("epoch {}".format(i))
+        test_loader = test_rc_dataset.dataloader()
+        for idx, (datas, labels) in enumerate(test_loader):
+            if idx == 0:
+                print(datas.size(), datas[0].dtype)
+                print(labels)
+                print(len(labels))
+            if idx > 5:
+                break
 
