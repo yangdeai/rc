@@ -1,21 +1,16 @@
-# 导入常用包
 import os
-from datetime import datetime
-
-import numpy as np
-import torch
-from torch.utils.data import Dataset, DataLoader
-from torchvision.transforms import transforms
-from torch.utils.tensorboard import SummaryWriter
-from torchvision import datasets
-from torch.optim.lr_scheduler import MultiStepLR
-
-from utils import WarmUpLR, get_network
-from models.resnet import resnet101
-
 import logging
 import time
 import argparse
+
+import numpy as np
+
+import torch
+from torchvision.transforms import transforms
+from torch.utils.tensorboard import SummaryWriter
+from torchvision import datasets
+
+from utils import get_network
 
 
 def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):

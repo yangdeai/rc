@@ -176,8 +176,8 @@ if __name__ == '__main__':
     input_port_num = 1
     output_port_num = 6
 
-    train_rc_project = RcProject(train_dataset, in_num=input_port_num, out_num=output_port_num, seed=SEED)
-    test_rc_project = RcProject(test_dataset, in_num=input_port_num, out_num=output_port_num, seed=SEED)
+    train_rc_project = RcProject(train_dataset, in_num=input_port_num, out_num=output_port_num, structure="44", seed=SEED)
+    test_rc_project = RcProject(test_dataset, in_num=input_port_num, out_num=output_port_num, structure="44", seed=SEED)
 
     train_rc_dataset = PreproRcData(rcPro=train_rc_project, batch_size=BATCH_SIZE, train=True, seed=SEED)
     test_rc_dataset = PreproRcData(rcPro=test_rc_project, batch_size=BATCH_SIZE, train=False, seed=SEED)
