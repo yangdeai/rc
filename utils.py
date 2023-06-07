@@ -84,56 +84,34 @@ class PreproRcData:
             transforms.ToTensor(),
             transforms.Normalize(self.mean, self.std)
         ])
-        self.prepro_data = self.get_prepro_data()
+
+        self.batch_idxes = BatchSampler(RandomSampler(self.rc_data, replacement=False),
+                                        batch_size=self.batch_size,
+                                        drop_last=True)
 
     def dataloader(self):
         """
             根据batch_idx抽取采样数据，生成器。
         :return: batch_size大小的数据
         """
-        batch_idxes = BatchSampler(RandomSampler(self.prepro_data, replacement=False),
-                                        batch_size=self.batch_size,
-                                        drop_last=True)
-
-        for batch_idx in batch_idxes:
-            batch_trans_data = []
-            for sample_idx in batch_idx:
-                x = self.prepro_data[sample_idx].to(torch.float32)
-                batch_trans_data.append(x)
-            batch_trans_data = torch.stack(batch_trans_data, dim=0)
+        for batch_idx in self.batch_idxes:
+            batch_trans_data = self.transforms(batch_idx).to(torch.float32)
             batch_labels = torch.tensor([self.labels[i] for i in batch_idx], dtype=torch.int64)
 
             yield batch_trans_data, batch_labels
 
-    def get_prepro_data(self):
-        if self.train:
-            prepro_data_file = self.prepro_data_path + f'train_pre_in{self.in_num}_out{self.out_num}.pt'
-        else:
-            prepro_data_file = self.prepro_data_path + f'test_pre_in{self.in_num}_out{self.out_num}.pt'
-
-        if not os.path.isfile(prepro_data_file):
-            prepro_data = self.all_transforms(prepro_data_file)
-        else:
-            prepro_data = torch.load(prepro_data_file)
-
-        return prepro_data
-
-    def all_transforms(self, prepro_data_file):
-        all_trans_data = []
-        num_data = len(self.rc_data)
-        for sample_idx in range(num_data):
+    def transforms(self, batch_idx):
+        batch_trans_data = []
+        for idx in batch_idx:
             if self.train:
-                x = self.train_trans(self.rc_data[sample_idx])
+                x = self.train_trans(self.rc_data[idx])
             else:
-                x = self.test_trans(self.rc_data[sample_idx])
-            all_trans_data.append(x)
+                x = self.test_trans(self.rc_data[idx])
+            batch_trans_data.append(x)
 
-        all_trans_data = torch.stack(all_trans_data, dim=0)
+        batch_trans_data = torch.stack(batch_trans_data, dim=0)
 
-        # save data
-        torch.save(all_trans_data, prepro_data_file)
-
-        return all_trans_data
+        return batch_trans_data
 
     def get_mean_std(self):
         if self.train:

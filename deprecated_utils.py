@@ -845,7 +845,7 @@ class RcProjectPre:
             transforms.Normalize(self.mean, self.std)
         ])
 
-        self.memory_out = False
+        self.memory_out = True
         if not self.memory_out:
             if not os.path.isfile(self.rc_trans_data):
                 self.rc_trans_data = self.all_transforms()
@@ -867,6 +867,7 @@ class RcProjectPre:
         self.data = np.reshape(self.data, (-1, 32, 32, 3 * self.resSize))
 
     def rc_reprocess(self):
+
         for batch_idx in self.batch_idxes:
             batch_trans_data = self.transforms(batch_idx).to(torch.float32)
             rc_labels = torch.tensor([self.labels[i] for i in batch_idx], dtype=torch.int64)
@@ -955,15 +956,18 @@ if __name__ == "__main__":
     batch_size = 4
     train_dataset = datasets.CIFAR10('cifar10', train=True, download=True)
     test_dataset = datasets.CIFAR10('cifar10', train=False, download=True)
-    rcPro = RcProjectPre(train_dataset, batch_size=batch_size, train=True)
+    rcPro_train = RcProjectPre(train_dataset, batch_size=batch_size, train=True)
     rcPro_test = RcProjectPre(test_dataset, batch_size=batch_size, train=False)
+
     # print(len(list(train_loader)))  # 390
     for i in range(2):  # 不同的epoch，采样不同
         print("epoch {}".format(i))
-        train_loader = rcPro.rc_reprocess()
+        train_loader = rcPro_train.rc_reprocess()
+
         # train_loader = rcPro.all_rc_reprocess()
         for idx, (datas, labels) in enumerate(train_loader):
             if idx == 0:
+                print(next(iter(rcPro_train.batch_idxes)))
                 # print(datas)
                 print(datas.size(), datas[0].dtype)  # torch.Size([5, 3, 32, 32]) torch.float32
                 # datas_numpy = datas.numpy()
@@ -971,24 +975,25 @@ if __name__ == "__main__":
                 # print(img, img.dtype)
                 print(labels)
             # print(len(labels))
-            # if idx > 5:
-            #     break
+            if idx > 5:
+                break
 
-        for i in range(2):  # 不同的epoch，采样不同
-            print("epoch {}".format(i))
-            test_loader = rcPro_test.rc_reprocess()
-            # test_loader = rcPro_test.all_rc_reprocess()
-            for idx, (datas, labels) in enumerate(test_loader):
-                if idx == 0:
-                    # print(datas)
-                    print(datas.size(), datas[0].dtype)  # torch.Size([5, 3, 32, 32]) torch.float32
-                    # datas_numpy = datas.numpy()
-                    # img = np.int8(datas_numpy)
-                    # print(img, img.dtype)
-                    print(labels)
-                # print(len(labels))
-                # if idx > 5:
-                #     break
+    for i in range(2):  # 不同的epoch，采样不同
+        print("epoch {}".format(i))
+        test_loader = rcPro_test.rc_reprocess()
+        # test_loader = rcPro_test.all_rc_reprocess()
+        for idx, (datas, labels) in enumerate(test_loader):
+            if idx == 0:
+                print(rcPro_test.batch_idxes)
+                # print(datas)
+                print(datas.size(), datas[0].dtype)  # torch.Size([5, 3, 32, 32]) torch.float32
+                # datas_numpy = datas.numpy()
+                # img = np.int8(datas_numpy)
+                # print(img, img.dtype)
+                print(labels)
+            # print(len(labels))
+            if idx > 5:
+                break
 
         # self.normalized_data = self.origin_data / 255.0
         #
