@@ -10,8 +10,8 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 from torchvision import datasets
 
-from utils import get_network, PreproRcData
-from rcProjection import RcProject
+from utils import get_network, PreproRcData, flatten_data
+from opticalOperater import OpticalOpt
 
 
 def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
@@ -41,7 +41,7 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
         logging.info("\n")
 
         # train dataloader
-        train_loader = train_rc_dataset.dataloader()
+        train_loader = train_dataset.dataloader()
         with torch.set_grad_enabled(True):
             model.train()
             for iter, (images, labels) in enumerate(train_loader):
@@ -78,8 +78,8 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
             writer.add_histogram(name + '_data', param, epoch)
 
         # test dataloader
-        test_loader = test_rc_dataset.dataloader()
-        with torch.set_grad_enabled(False):
+        test_loader = test_dataset.dataloader()
+        with torch.no_grad():
             model.eval()
             val_total_loss = 0
             val_total_correct = 0
@@ -114,10 +114,6 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
             logging.info('valid Loss: {:.4f}[{}], valid Acc: {:.4f}'.format(val_loss, epoch_count, val_acc))
 
         # scheduler_optimizer.step()
-        logging.info("\n\n")
-        logging.info(f"train_rc.Win: {train_rc_project.Win}, test_rc.Win: {test_rc_project.Win}, epoch{epoch}/{MAX_EPOCH}")
-        logging.info("\n\n")
-
         logging.info("\n")
         logging.info('current lr: {:.7f}'.format(optimizer.param_groups[0]['lr']))
         logging.info("\n")
@@ -150,7 +146,7 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='train resnet with cifar10 dataset.')
     parser.add_argument('-net', '--network', type=str, default='resnet18', help='network: resnet101 or rc_resnet_101')
-    parser.add_argument('-exp_num', '--exp_num', type=str, default='0_rc', help='the exp num')
+    parser.add_argument('-exp_num', '--exp_num', type=str, default='1_opt', help='the exp num')
     parser.add_argument('-lr', '--learning_rate', type=float, default=1e-1, help='initial learning rate')
     parser.add_argument('-bs', '--batch_size', type=int, default=128, help='batch size for dataloader')
     parser.add_argument('-me', '--max_epoch', type=int, default=250, help='total epoch to train')
@@ -168,20 +164,35 @@ if __name__ == '__main__':
     WARM_EPOCH = args.warm_epoch
     BATCH_SIZE = args.batch_size
 
-    # prepared dataset
-    train_dataset = datasets.CIFAR10('cifar10', train=True, download=True)
-    test_dataset = datasets.CIFAR10('cifar10', train=False, download=True)
+    # 0 选择光芯片结构、输入端口数、输出端口数
+    structure = "RC_44"
+    input_port_num = 1  # 输入端口数
+    output_port_num = 6  # 输出端口数
 
-    # rc_projection and dataloader
-    input_port_num = 1
-    output_port_num = 6
-    structure = "44"
+    # 1 获取原始数据集
+    train_origin_dataset = datasets.CIFAR10('cifar10', train=True, download=True)  # 训练数据集
+    test_origin_dataset = datasets.CIFAR10('cifar10', train=False, download=True)  # 测试数据集
 
-    train_rc_project = RcProject(train_dataset, in_num=input_port_num, out_num=output_port_num, structure=structure, seed=SEED)
-    test_rc_project = RcProject(test_dataset, in_num=input_port_num, out_num=output_port_num, structure=structure, seed=SEED)
+    # 2 对原始数据进行一维化
+    train_flatten_data = flatten_data(train_origin_dataset.data)  # 光芯片只能接收一维数据，所以要将数据拉平
+    train_label = train_origin_dataset.targets
+    test_flatten_data = flatten_data(test_origin_dataset.data)
+    test_label = test_origin_dataset.targets
 
-    train_rc_dataset = PreproRcData(rcPro=train_rc_project, batch_size=BATCH_SIZE, train=True, seed=SEED)
-    test_rc_dataset = PreproRcData(rcPro=test_rc_project, batch_size=BATCH_SIZE, train=False, seed=SEED)
+    # 3 进行光算子操作
+    train_opt_data = OpticalOpt(data=train_flatten_data, structure=structure, in_num=input_port_num,
+                                out_num=output_port_num).optical_operator()
+    test_opt_data = OpticalOpt(data=test_flatten_data, structure=structure, in_num=input_port_num,
+                               out_num=output_port_num).optical_operator()
+
+    train_opt_dataset = [train_opt_data, train_label]
+    test_opt_dataset = [test_opt_data, test_label]
+
+    # 4 对经过光算子操作后的数据集进行其他预处理
+    train_dataset = PreproRcData(opt_dataset=train_opt_dataset, batch_size=BATCH_SIZE, train=True,
+                                 in_num=input_port_num, out_num=output_port_num, seed=SEED)
+    test_dataset = PreproRcData(opt_dataset=test_opt_dataset, batch_size=BATCH_SIZE, train=False,
+                                in_num=input_port_num, out_num=output_port_num, seed=SEED)
 
     # device
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -189,13 +200,13 @@ if __name__ == '__main__':
     # model
     model = get_network(args.network)
     # model's in_channel equals rc's out_channel
-    rc_out_channel = 3 * train_rc_project.out_num
+    rc_out_channel = 3 * output_port_num
     feature_map = 64
     model.conv1 = torch.nn.Conv2d(rc_out_channel, feature_map, 3, stride=1, padding=1, bias=False)  # 首层改成3x3卷积核
     model.maxpool = torch.nn.MaxPool2d(1, 1, 0)  # 通过1x1的池化核让池化层失效
 
     # file/dir
-    exp_name = f'rc_{args.network}_exp{args.exp_num}_in{train_rc_project.in_num}_out{train_rc_project.out_num}' \
+    exp_name = f'rc_{args.network}_exp{args.exp_num}_in{input_port_num}_out{output_port_num}' \
                f'_fp{feature_map}_lr{LR}_max{MAX_EPOCH}'
     weight_dir = f'./weights/{exp_name}'
     best_weight_pth = weight_dir + f'/max_epoch{args.max_epoch}'
@@ -214,11 +225,6 @@ if __name__ == '__main__':
                         level=logging.INFO)
 
     writer = SummaryWriter(log_dir)
-    # train/test Win
-    logging.info("\n\n")
-    logging.info(f"train_rc.Win: {train_rc_project.Win}, test_rc.Win: {test_rc_project.Win}, "
-                 f"in_num: {train_rc_project.in_num}out_num: {train_rc_project.out_num}")
-    logging.info("\n\n")
 
     # check model
     logging.info("============== layers needed to train ==============")
@@ -232,7 +238,6 @@ if __name__ == '__main__':
     optimizer = torch.optim.SGD(model.parameters(), lr=LR, momentum=0.9, weight_decay=5e-4)
 
     logging.info("===   !!!START TRAINING!!!   ===")
-    # logging.info('train_data_num: {}, validation_data_num: {}'.format(len(train_dataset), len(val_cifar_dataset)))
     logging.info('train_data_num: {}, validation_data_num: {}'.format(len(train_dataset), len(test_dataset)))
     train(model=model, loss_fn=loss_fn, optimizer=optimizer, lr=LR, device=device)
     logging.info("===   !!! END TRAINING !!!   ===")

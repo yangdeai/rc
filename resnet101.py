@@ -72,7 +72,7 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
             writer.add_histogram(name + '_grad', param.grad, epoch)
             writer.add_histogram(name + '_data', param, epoch)
 
-        with torch.set_grad_enabled(False):
+        with torch.no_grad():
             model.eval()
             val_total_loss = 0
             val_total_correct = 0

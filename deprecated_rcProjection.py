@@ -15,9 +15,10 @@ from torchvision import datasets
 
 
 class RcProject:
-    def __init__(self, userDataset=None, in_num=1, out_num=6, structure="44", seed=1234):
-
-        np.random.seed(seed)  # 随机种子，用于结果可复现
+    """
+        只模拟光算子映射。
+    """
+    def __init__(self, userDataset=None, in_num=1, out_num=6, structure="44"):
 
         self.in_num = in_num  # 输入端口数
         self.out_num = out_num  # 输出端口数
@@ -31,8 +32,6 @@ class RcProject:
         self.data = self.data.reshape(-1, self.inSize, self.in_num)
         self.labels = self.dataset.targets  # 原始图像数据标签，格式：(50000,)，是一个list
 
-        self.Win = np.zeros((1, self.out_num))
-
     def rc_project(self):
         """
         不同的结构对应不同的光芯片,即对应不同的PDA系统，对应不同的连接权重Win, 也就对应不同的RC projection.
@@ -41,18 +40,23 @@ class RcProject:
         """
         assert isinstance(self.structure, str)
         if self.structure == "44":
+            np.random.seed(1234)  # 随机种子，用于电仿真结果复现，与光算子操作无关
             self.Win = np.random.randn(1, self.out_num)
             rc_data = np.matmul(self.data, self.Win)
         elif self.structure == "48":
+            np.random.seed(1234)
             self.Win = np.random.rand(1, self.out_num)
             rc_data = np.matmul(self.data, self.Win)
         elif self.structure == "12":
+            np.random.seed(1234)
             self.Win = np.random.uniform(low=0, high=2, size=(1, self.out_num))
             rc_data = np.matmul(self.data, self.Win)
         elif self.structure == "56":
+            np.random.seed(1234)
             self.Win = np.random.uniform(low=-1, high=1, size=(1, self.out_num))
             rc_data = np.matmul(self.data, self.Win)
         elif self.structure == "diffraction":
+            np.random.seed(1234)
             self.Win = np.random.uniform(low=1, high=2, size=(1, self.out_num))
             rc_data = np.matmul(self.data, self.Win)
         else:

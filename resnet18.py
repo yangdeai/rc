@@ -33,8 +33,7 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
             epoch_count = 0
             lr = lr * 0.5
             optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=5e-4)
-            
-            
+
         logging.info('Epoch {}/{}'.format(epoch, MAX_EPOCH))
         logging.info('-' * 10)
         logging.info("\n")
@@ -74,7 +73,7 @@ def train(model=None, loss_fn=None, optimizer=None, lr=1e-1, device=None):
             writer.add_histogram(name + '_grad', param.grad, epoch)
             writer.add_histogram(name + '_data', param, epoch)
 
-        with torch.set_grad_enabled(False):
+        with torch.no_grad():
             model.eval()
             val_total_loss = 0
             val_total_correct = 0
